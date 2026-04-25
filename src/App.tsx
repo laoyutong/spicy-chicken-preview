@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 
@@ -236,6 +237,44 @@ function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [navigate, resetView]);
+
+  const loadOpenedFile = useCallback(
+    async (filePath: string) => {
+      try {
+        const imageList: string[] = await invoke("list_images_in_folder", {
+          filePath,
+        });
+        const idx = imageList.indexOf(filePath);
+        setImages(imageList);
+        setCurrentIndex(idx >= 0 ? idx : 0);
+        imgW.current = 0;
+        imgH.current = 0;
+        sourceImg.current = null;
+        await loadImage(filePath, true);
+      } catch {
+        setError("Failed to open image");
+      }
+    },
+    [loadImage]
+  );
+
+  // File opened from outside (e.g., macOS "Open With")
+  useEffect(() => {
+    // Cold start: check for a file that was opened before the frontend was ready
+    invoke<string | null>("get_pending_file").then(async (pendingPath) => {
+      if (pendingPath) {
+        await loadOpenedFile(pendingPath);
+      }
+    });
+
+    // Warm start: listen for files opened while the app is already running
+    const unlisten = listen<string>("file-opened", async (event) => {
+      await loadOpenedFile(event.payload);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [loadImage, loadOpenedFile]);
 
   // ── Wheel: zoom / pan ─────────────────────────────────────────
 

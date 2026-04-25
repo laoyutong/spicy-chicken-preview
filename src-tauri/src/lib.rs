@@ -1,4 +1,8 @@
 use std::path::Path;
+use std::sync::Mutex;
+use tauri::Emitter;
+
+static PENDING_FILE: Mutex<Option<String>> = Mutex::new(None);
 
 #[tauri::command]
 fn list_images_in_folder(file_path: &str) -> Result<Vec<String>, String> {
@@ -39,12 +43,45 @@ fn list_images_in_folder(file_path: &str) -> Result<Vec<String>, String> {
     Ok(images)
 }
 
+#[tauri::command]
+fn get_pending_file() -> Option<String> {
+    let mut pending = PENDING_FILE.lock().unwrap();
+    pending.take()
+}
+
+fn url_to_file_path(url_str: &str) -> Option<String> {
+    // Handle file:// URLs (macOS)
+    if let Some(path) = url_str.strip_prefix("file://") {
+        let decoded = urlencoding::decode(path).ok()?;
+        return Some(decoded.into_owned());
+    }
+    // Already a file path
+    if Path::new(url_str).exists() {
+        return Some(url_str.to_string());
+    }
+    None
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![list_images_in_folder])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .invoke_handler(tauri::generate_handler![list_images_in_folder, get_pending_file])
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Opened { urls } = event {
+                for url in &urls {
+                    if let Some(file_path) = url_to_file_path(url.as_str()) {
+                        // Store for cold start (frontend calls get_pending_file on mount)
+                        let mut pending = PENDING_FILE.lock().unwrap();
+                        *pending = Some(file_path.clone());
+
+                        // Also emit for warm start (frontend already listening)
+                        let _ = app_handle.emit("file-opened", file_path);
+                    }
+                }
+            }
+        });
 }
