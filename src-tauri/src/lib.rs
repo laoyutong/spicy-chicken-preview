@@ -197,6 +197,23 @@ pub fn run() {
             get_pending_file,
             get_thumbnail
         ])
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let app_handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::DragDrop(drag_event) = event {
+                        if let tauri::DragDropEvent::Drop { paths, .. } = drag_event {
+                            if let Some(path) = paths.first() {
+                                let file_path = path.to_string_lossy().to_string();
+                                *PENDING_FILE.lock().unwrap() = Some(file_path.clone());
+                                let _ = app_handle.emit("file-opened", file_path);
+                            }
+                        }
+                    }
+                });
+            }
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
