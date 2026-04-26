@@ -24,8 +24,16 @@ html, body, #root {
 
 .viewer {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100%;
+}
+
+.viewer-right {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* ── Toolbar ── */
@@ -81,6 +89,11 @@ html, body, #root {
 .toolbar-btn:hover {
   background: #3a3a3a;
   color: #fff;
+}
+
+.toolbar-btn.active {
+  background: #3a3a3a;
+  color: #4da3ff;
 }
 
 .toolbar-filename {
@@ -177,4 +190,128 @@ html, body, #root {
 .state-hint {
   font-size: 13px;
   color: #555;
+}
+
+/* ── Sidebar ── */
+
+.sidebar {
+  flex-shrink: 0;
+  background-color: #1e1e1e;
+  border-right: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px;
+}
+
+/* ── Sidebar scrollbar ── */
+
+.sidebar-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-list::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 3px;
+}
+
+.sidebar-list::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* ── Sidebar resize handle ── */
+
+.sidebar-resize-handle {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle:active {
+  background: rgba(77, 163, 255, 0.2);
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+  min-width: 0;
+}
+
+.sidebar-item:hover {
+  background: #2a2a2a;
+}
+
+.sidebar-item.active {
+  background: #2a4a6a;
+}
+
+.sidebar-item.active .sidebar-filename {
+  color: #fff;
+}
+
+.sidebar-thumbnail {
+  width: 48px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.sidebar-thumbnail-loading {
+  animation: thumbnail-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes thumbnail-pulse {
+  0%, 100% { background: #333; }
+  50% { background: #3a3a3a; }
+}
+
+.sidebar-thumbnail-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e05555;
+  font-size: 14px;
+  font-weight: bold;
+  background: #2a1a1a;
+}
+
+.sidebar-filename {
+  font-size: 11px;
+  color: #999;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }

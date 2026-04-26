@@ -1,8 +1,13 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
+use std::process::Command;
 use std::sync::Mutex;
 use tauri::Emitter;
+use tauri::Manager;
 
 static PENDING_FILE: Mutex<Option<String>> = Mutex::new(None);
+static THUMBNAIL_LOCK: Mutex<()> = Mutex::new(());
 
 #[tauri::command]
 fn list_images_in_folder(file_path: &str) -> Result<Vec<String>, String> {
@@ -49,6 +54,50 @@ fn get_pending_file() -> Option<String> {
     pending.take()
 }
 
+#[tauri::command]
+fn get_thumbnail(app: tauri::AppHandle, file_path: &str, max_size: u32) -> Result<String, String> {
+    // Serialize thumbnail generation — only one at a time to limit memory
+    let _guard = THUMBNAIL_LOCK.lock().unwrap();
+
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("Failed to get cache dir: {}", e))?
+        .join("thumbnails");
+
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|e| format!("Failed to create cache dir: {}", e))?;
+
+    // Hash the file path to create a stable cache key
+    let mut hasher = DefaultHasher::new();
+    file_path.hash(&mut hasher);
+    let hash = hasher.finish();
+    let cache_file = cache_dir.join(format!("{:x}_{}.jpg", hash, max_size));
+
+    // Return cached thumbnail path if it already exists
+    if cache_file.exists() {
+        return Ok(cache_file.to_string_lossy().to_string());
+    }
+
+    // Generate thumbnail using macOS sips (hardware-accelerated, no full decode)
+    let sips_size = max_size.to_string();
+    let output = Command::new("sips")
+        .arg("-Z")
+        .arg(&sips_size)
+        .arg(file_path)
+        .arg("--out")
+        .arg(&cache_file)
+        .output()
+        .map_err(|e| format!("Failed to run sips: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("sips failed: {}", stderr));
+    }
+
+    Ok(cache_file.to_string_lossy().to_string())
+}
+
 fn url_to_file_path(url_str: &str) -> Option<String> {
     // Handle file:// URLs (macOS)
     if let Some(path) = url_str.strip_prefix("file://") {
@@ -67,7 +116,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![list_images_in_folder, get_pending_file])
+        .invoke_handler(tauri::generate_handler![
+            list_images_in_folder,
+            get_pending_file,
+            get_thumbnail
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import Sidebar from "./Sidebar";
 import "./App.css";
 
 const MIN_ZOOM = 0.5;
@@ -44,6 +45,7 @@ function App() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
 
   // Zoom & pan
   const [zoom, setZoom] = useState(1);
@@ -220,6 +222,25 @@ function App() {
     [images, currentIndex, loadImage]
   );
 
+  const jumpTo = useCallback(
+    (index: number) => {
+      if (images.length === 0 || index === currentIndex) return;
+      setCurrentIndex(index);
+      imgW.current = 0;
+      imgH.current = 0;
+      sourceImg.current = null;
+      loadImage(images[index], true);
+    },
+    [images, currentIndex, loadImage]
+  );
+
+  // Auto-show sidebar when a folder is loaded
+  useEffect(() => {
+    if (images.length > 0) {
+      setSidebarVisible(true);
+    }
+  }, [images]);
+
   // Keyboard
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -365,7 +386,14 @@ function App() {
 
   return (
     <div className="viewer">
-      <div className="toolbar">
+      <Sidebar
+        images={images}
+        currentIndex={currentIndex}
+        onSelect={jumpTo}
+        visible={sidebarVisible}
+      />
+      <div className="viewer-right">
+        <div className="toolbar">
         <div className="toolbar-left">
           <button className="toolbar-btn" onClick={openFile} title="Open image">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -373,6 +401,21 @@ function App() {
               <polyline points="9 22 9 12 15 12 15 22" />
             </svg>
           </button>
+          {images.length > 0 && (
+            <button
+              className={`toolbar-btn${sidebarVisible ? " active" : ""}`}
+              onClick={() => setSidebarVisible((v) => !v)}
+              title="Toggle sidebar"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M10 3v18" />
+                <rect x="5" y="7" width="3" height="3" fill="currentColor" />
+                <rect x="5" y="12" width="3" height="3" fill="currentColor" />
+                <rect x="5" y="17" width="3" height="1" fill="currentColor" />
+              </svg>
+            </button>
+          )}
           {fileName && <span className="toolbar-filename">{fileName}</span>}
         </div>
 
@@ -441,6 +484,7 @@ function App() {
             <p className="state-hint">Scroll to zoom · Drag to pan · Double-click to reset · ← → to navigate</p>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
