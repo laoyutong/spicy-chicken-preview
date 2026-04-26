@@ -13,7 +13,10 @@
       "Bash(npx skills:*)",
       "Bash(ls:*)",
       "Bash(git log:*)",
-      "Bash(cargo --version)"
+      "Bash(cargo --version)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git commit:*)"
     ]
   }
 }
