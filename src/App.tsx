@@ -31,8 +31,8 @@ function clampPan(
   const { fw, fh } = getFittedSize(imgW, imgH, cw, ch);
   const sw = fw * zoomVal;
   const sh = fh * zoomVal;
-  const maxX = Math.max(0, (sw - cw) / 2);
-  const maxY = Math.max(0, (sh - ch) / 2);
+  const maxX = Math.abs(sw - cw) / 2;
+  const maxY = Math.abs(sh - ch) / 2;
   return {
     x: Math.max(-maxX, Math.min(maxX, px)),
     y: Math.max(-maxY, Math.min(maxY, py)),
@@ -139,6 +139,32 @@ function App() {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [draw]);
+
+  // ── Zoom helper ────────────────────────────────────────────────
+
+  const zoomToward = useCallback((cx: number, cy: number, step: number) => {
+    const container = imageAreaRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const cw = rect.width;
+    const ch = rect.height;
+    if (cw <= 0 || ch <= 0) return;
+
+    const oldZ = zoomRef.current;
+    const newZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldZ + step));
+    if (newZ === oldZ) return;
+
+    const ratio = newZ / oldZ;
+    const px = panXRef.current;
+    const py = panYRef.current;
+    const newPx = (cx - cw / 2) * (1 - ratio) + px * ratio;
+    const newPy = (cy - ch / 2) * (1 - ratio) + py * ratio;
+
+    const c = clampPan(newPx, newPy, newZ, imgW.current, imgH.current, cw, ch);
+    setZoom(newZ);
+    setPanX(c.x);
+    setPanY(c.y);
+  }, []);
 
   // ── Image loading ─────────────────────────────────────────────
 
@@ -310,16 +336,9 @@ function App() {
 
       const isPinch = e.ctrlKey || e.metaKey;
 
-      if (isPinch || zoomRef.current <= 1) {
+      if (isPinch) {
         const step = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
-        setZoom((prev) => {
-          const next = prev + step;
-          if (next <= 1) {
-            setPanX(0);
-            setPanY(0);
-          }
-          return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next));
-        });
+        zoomToward(e.clientX, e.clientY, step);
       } else {
         const rect = imageAreaRef.current.getBoundingClientRect();
         const newX = panXRef.current - e.deltaX;
@@ -332,13 +351,12 @@ function App() {
 
     el.addEventListener("wheel", handleWheel, { passive: false });
     return () => el.removeEventListener("wheel", handleWheel);
-  }, []);
+  }, [zoomToward]);
 
   // ── Pointer: drag to pan ──────────────────────────────────────
 
   const panHandlers = useRef({
     handlePointerDown(e: React.PointerEvent) {
-      if (zoomRef.current <= 1) return;
       e.preventDefault();
       isPanning.current = true;
       hasPanned.current = false;
@@ -382,7 +400,7 @@ function App() {
     : "";
 
   const zoomPercent = Math.round(zoom * 100);
-  const areaClass = "image-area" + (dragging ? " dragging" : zoom > 1 ? " grab" : "");
+  const areaClass = "image-area" + (dragging ? " dragging" : imageUrl ? " grab" : "");
 
   return (
     <div className="viewer">
@@ -440,13 +458,25 @@ function App() {
         <div className="toolbar-right">
           {imageUrl && (
             <div className="zoom-controls">
-              <button className="toolbar-btn" onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - ZOOM_STEP * 2))} title="Zoom out">
+              <button className="toolbar-btn" onClick={() => {
+                const el = imageAreaRef.current;
+                if (el) {
+                  const r = el.getBoundingClientRect();
+                  zoomToward(r.width / 2, r.height / 2, -ZOOM_STEP * 2);
+                }
+              }} title="Zoom out">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="8" y1="11" x2="14" y2="11" />
                 </svg>
               </button>
               <span className="zoom-label" onClick={resetView} title="Reset zoom (press 0)">{zoomPercent}%</span>
-              <button className="toolbar-btn" onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + ZOOM_STEP * 2))} title="Zoom in">
+              <button className="toolbar-btn" onClick={() => {
+                const el = imageAreaRef.current;
+                if (el) {
+                  const r = el.getBoundingClientRect();
+                  zoomToward(r.width / 2, r.height / 2, ZOOM_STEP * 2);
+                }
+              }} title="Zoom in">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="11" y1="8" x2="11" y2="14" /><line x1="8" y1="11" x2="14" y2="11" />
                 </svg>
