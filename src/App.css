@@ -1,19 +1,53 @@
+/* ═══════════════════════════════════════════════════════════════════
+   "Obsidian" — Refined Dark Minimalism
+   Warm amber accents on deep obsidian blacks.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Reset ─────────────────────────────────────────────────────── */
+
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 14px;
-  color: #e0e0e0;
-  background-color: #1a1a1a;
+/* ── Design Tokens ─────────────────────────────────────────────── */
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
+:root {
+  --bg-root: #080808;
+  --bg-toolbar: #0d0d0d;
+  --bg-sidebar: #0a0a0a;
+  --bg-hover: #1a1a1a;
+  --bg-active: #1f1f1f;
+  --bg-image: #050505;
+
+  --border-subtle: #1c1c1c;
+  --border-default: #282828;
+
+  --text-primary: #e4e0d8;
+  --text-secondary: #888478;
+  --text-muted: #58544c;
+
+  --accent: #c4956a;
+  --accent-hover: #d4a87e;
+  --accent-dim: rgba(196, 149, 106, 0.10);
+  --accent-dim-hover: rgba(196, 149, 106, 0.18);
+  --accent-glow: 0 0 10px rgba(196, 149, 106, 0.08);
+
+  --error: #b85c5c;
+  --error-dim: rgba(184, 92, 92, 0.08);
+
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, 'Menlo', 'Cascadia Code', monospace;
+  --font-serif: 'Didot', 'Bodoni 72', 'Georgia', 'Times New Roman', serif;
+
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  background-color: var(--bg-root);
+
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 html, body, #root {
@@ -21,6 +55,8 @@ html, body, #root {
   overflow: hidden;
   user-select: none;
 }
+
+/* ── Layout ────────────────────────────────────────────────────── */
 
 .viewer {
   display: flex;
@@ -36,17 +72,19 @@ html, body, #root {
   overflow: hidden;
 }
 
-/* ── Toolbar ── */
+/* ── Toolbar ───────────────────────────────────────────────────── */
 
 .toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 44px;
-  padding: 0 12px;
-  background-color: #242424;
-  border-bottom: 1px solid #333;
+  height: 42px;
+  padding: 0 14px;
+  background-color: var(--bg-toolbar);
+  border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
+  position: relative;
+  z-index: 10;
 }
 
 .toolbar-left,
@@ -54,7 +92,7 @@ html, body, #root {
 .toolbar-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 .toolbar-left {
@@ -71,52 +109,74 @@ html, body, #root {
   justify-content: flex-end;
 }
 
+/* ── Toolbar Buttons ───────────────────────────────────────────── */
+
 .toolbar-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border: none;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
-  color: #c0c0c0;
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
   flex-shrink: 0;
 }
 
 .toolbar-btn:hover {
-  background: #3a3a3a;
-  color: #fff;
+  background: var(--bg-hover);
+  color: var(--accent);
+  box-shadow: var(--accent-glow);
+}
+
+.toolbar-btn:active {
+  background: var(--bg-active);
+  transition: background 0.06s ease;
 }
 
 .toolbar-btn.active {
-  background: #3a3a3a;
-  color: #4da3ff;
+  color: var(--accent);
+  background: var(--accent-dim);
 }
 
+.toolbar-btn.active:hover {
+  background: var(--accent-dim-hover);
+}
+
+/* ── Toolbar Filename ──────────────────────────────────────────── */
+
 .toolbar-filename {
-  color: #c0c0c0;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-style: italic;
+  margin-left: 8px;
 }
+
+/* ── Toolbar Counter ───────────────────────────────────────────── */
 
 .toolbar-counter {
-  color: #a0a0a0;
-  font-size: 13px;
-  min-width: 60px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  min-width: 64px;
   text-align: center;
+  letter-spacing: 0.4px;
 }
 
-/* ── Zoom Controls ── */
+/* ── Zoom Controls ─────────────────────────────────────────────── */
 
 .zoom-controls {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .zoom-label {
@@ -124,29 +184,47 @@ html, body, #root {
   align-items: center;
   justify-content: center;
   min-width: 44px;
-  height: 28px;
+  height: 26px;
   padding: 0 6px;
-  font-size: 12px;
-  color: #a0a0a0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
   border-radius: 4px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.18s ease, color 0.18s ease;
+  letter-spacing: 0.3px;
 }
 
 .zoom-label:hover {
-  background: #3a3a3a;
-  color: #fff;
+  background: var(--bg-hover);
+  color: var(--accent);
 }
 
-/* ── Image Area ── */
+/* ── Image Area ────────────────────────────────────────────────── */
 
 .image-area {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #1a1a1a;
+  background-color: var(--bg-image);
   overflow: hidden;
+  position: relative;
+}
+
+/* Subtle radial vignette — frames the image without touching it */
+.image-area::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 62%,
+    rgba(0, 0, 0, 0.45) 100%
+  );
 }
 
 .image-area.grab {
@@ -160,61 +238,88 @@ html, body, #root {
 .preview-canvas {
   display: block;
   pointer-events: none;
+  position: relative;
+  z-index: 1;
 }
 
-/* ── Empty / Error State ── */
+/* ── Empty / Error State ───────────────────────────────────────── */
 
 .state-message {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  color: #666;
+  gap: 14px;
   pointer-events: none;
+  position: relative;
+  z-index: 1;
 }
 
 .state-icon {
-  opacity: 0.5;
+  opacity: 0.22;
+  color: var(--text-muted);
 }
 
 .state-text {
-  font-size: 16px;
-  color: #888;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-style: italic;
+  color: var(--text-secondary);
+  text-align: center;
 }
 
 .state-error {
-  font-size: 16px;
-  color: #e05555;
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-style: italic;
+  color: var(--error);
 }
 
 .state-hint {
-  font-size: 13px;
-  color: #555;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+  text-align: center;
+  line-height: 1.6;
 }
 
-/* ── Sidebar ── */
+/* ── Sidebar ───────────────────────────────────────────────────── */
 
 .sidebar {
   flex-shrink: 0;
-  background-color: #1e1e1e;
-  border-right: 1px solid #333;
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   position: relative;
+  animation: sidebar-enter 0.22s ease-out;
 }
+
+@keyframes sidebar-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ── Sidebar List ──────────────────────────────────────────────── */
 
 .sidebar-list {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 4px;
+  padding: 6px 5px;
 }
 
-/* ── Sidebar scrollbar ── */
+/* ── Sidebar Scrollbar ─────────────────────────────────────────── */
 
 .sidebar-list::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 .sidebar-list::-webkit-scrollbar-track {
@@ -222,64 +327,88 @@ html, body, #root {
 }
 
 .sidebar-list::-webkit-scrollbar-thumb {
-  background: #444;
-  border-radius: 3px;
+  background: var(--border-default);
+  border-radius: 2px;
 }
 
 .sidebar-list::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: var(--text-muted);
 }
 
-/* ── Sidebar resize handle ── */
+/* ── Sidebar Resize Handle ─────────────────────────────────────── */
 
 .sidebar-resize-handle {
   position: absolute;
-  right: -3px;
+  right: -2px;
   top: 0;
   bottom: 0;
-  width: 8px;
+  width: 6px;
   cursor: col-resize;
   z-index: 10;
+  transition: background 0.2s ease;
 }
 
 .sidebar-resize-handle:hover,
 .sidebar-resize-handle:active {
-  background: rgba(77, 163, 255, 0.2);
+  background: var(--accent-dim);
 }
+
+/* ── Sidebar Items ─────────────────────────────────────────────── */
 
 .sidebar-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: 5px 8px;
+  border-radius: 3px;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background 0.15s ease;
   min-width: 0;
+  position: relative;
 }
 
 .sidebar-item:hover {
-  background: #2a2a2a;
+  background: var(--bg-hover);
 }
 
 .sidebar-item.active {
-  background: #2a4a6a;
+  background: var(--bg-hover);
+}
+
+/* Left-border accent bar for active item */
+.sidebar-item.active::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  background: var(--accent);
+  border-radius: 1px;
 }
 
 .sidebar-item.active .sidebar-filename {
-  color: #fff;
+  color: var(--text-primary);
 }
 
+/* ── Thumbnails ────────────────────────────────────────────────── */
+
 .sidebar-thumbnail {
-  width: 48px;
-  height: 36px;
+  width: 52px;
+  height: 38px;
   flex-shrink: 0;
-  border-radius: 3px;
+  border-radius: 2px;
   overflow: hidden;
-  background: #333;
+  background: var(--bg-active);
   display: flex;
   align-items: center;
   justify-content: center;
+  border: 1px solid var(--border-subtle);
+  transition: border-color 0.2s ease;
+}
+
+.sidebar-item.active .sidebar-thumbnail {
+  border-color: rgba(196, 149, 106, 0.22);
 }
 
 .sidebar-thumbnail img {
@@ -288,30 +417,46 @@ html, body, #root {
   object-fit: contain;
 }
 
+/* ── Thumbnail Loading ─────────────────────────────────────────── */
+
 .sidebar-thumbnail-loading {
-  animation: thumbnail-pulse 1.5s ease-in-out infinite;
+  animation: thumbnail-pulse 2s ease-in-out infinite;
 }
 
 @keyframes thumbnail-pulse {
-  0%, 100% { background: #333; }
-  50% { background: #3a3a3a; }
+  0%, 100% {
+    background: var(--bg-active);
+    border-color: var(--border-subtle);
+  }
+  50% {
+    background: #2a2a26;
+    border-color: var(--border-default);
+  }
 }
+
+/* ── Thumbnail Error ───────────────────────────────────────────── */
 
 .sidebar-thumbnail-error {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #e05555;
-  font-size: 14px;
-  font-weight: bold;
-  background: #2a1a1a;
+  color: var(--error);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--error-dim);
+  border-color: rgba(184, 92, 92, 0.18);
 }
 
+/* ── Sidebar Filename ──────────────────────────────────────────── */
+
 .sidebar-filename {
-  font-size: 11px;
-  color: #999;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  letter-spacing: 0.1px;
 }

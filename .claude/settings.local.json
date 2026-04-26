@@ -9,7 +9,11 @@
       "Bash(cargo build:*)",
       "Bash(cargo check:*)",
       "Bash(npx tsc:*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(npx skills:*)",
+      "Bash(ls:*)",
+      "Bash(git log:*)",
+      "Bash(cargo --version)"
     ]
   }
 }
