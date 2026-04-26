@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════
-   "Obsidian" — Refined Dark Minimalism
-   Warm amber accents on deep obsidian blacks.
+   "Obsidian" — Refined Dark Minimalism (dark)
+   "Paper"    — Warm paper minimalism (light)
+   Warm amber accents on deep obsidian blacks / warm paper whites.
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ── Reset ─────────────────────────────────────────────────────── */
@@ -13,7 +14,9 @@
 
 /* ── Design Tokens ─────────────────────────────────────────────── */
 
-:root {
+/* Dark theme (default) */
+:root,
+[data-theme="dark"] {
   --bg-root: #080808;
   --bg-toolbar: #0d0d0d;
   --bg-sidebar: #0a0a0a;
@@ -33,9 +36,12 @@
   --accent-dim: rgba(196, 149, 106, 0.10);
   --accent-dim-hover: rgba(196, 149, 106, 0.18);
   --accent-glow: 0 0 10px rgba(196, 149, 106, 0.08);
+  --accent-border: rgba(196, 149, 106, 0.22);
 
   --error: #b85c5c;
   --error-dim: rgba(184, 92, 92, 0.08);
+
+  --vignette: radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.45) 100%);
 
   --font-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, 'Menlo', 'Cascadia Code', monospace;
   --font-serif: 'Didot', 'Bodoni 72', 'Georgia', 'Times New Roman', serif;
@@ -48,6 +54,35 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/* Light theme */
+[data-theme="light"] {
+  --bg-root: #faf8f5;
+  --bg-toolbar: #f5f2ed;
+  --bg-sidebar: #f8f6f2;
+  --bg-hover: #ebe6db;
+  --bg-active: #e3ddd1;
+  --bg-image: #fcfbf9;
+
+  --border-subtle: #e0dbd0;
+  --border-default: #c5bfb2;
+
+  --text-primary: #2d2923;
+  --text-secondary: #6b6557;
+  --text-muted: #979185;
+
+  --accent: #b8845a;
+  --accent-hover: #a0734a;
+  --accent-dim: rgba(184, 132, 90, 0.08);
+  --accent-dim-hover: rgba(184, 132, 90, 0.15);
+  --accent-glow: 0 0 10px rgba(184, 132, 90, 0.06);
+  --accent-border: rgba(184, 132, 90, 0.25);
+
+  --error: #b85c5c;
+  --error-dim: rgba(184, 92, 92, 0.06);
+
+  --vignette: radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.06) 100%);
 }
 
 html, body, #root {
@@ -220,11 +255,7 @@ html, body, #root {
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  background: radial-gradient(
-    ellipse at center,
-    transparent 62%,
-    rgba(0, 0, 0, 0.45) 100%
-  );
+  background: var(--vignette);
 }
 
 .image-area.grab {
@@ -408,7 +439,7 @@ html, body, #root {
 }
 
 .sidebar-item.active .sidebar-thumbnail {
-  border-color: rgba(196, 149, 106, 0.22);
+  border-color: var(--accent-border);
 }
 
 .sidebar-thumbnail img {

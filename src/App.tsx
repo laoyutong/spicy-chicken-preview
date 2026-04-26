@@ -11,6 +11,14 @@ const MAX_ZOOM = 10;
 const ZOOM_STEP = 0.1;
 const PAN_DEAD_ZONE = 3;
 
+function loadTheme(): "dark" | "light" {
+  try {
+    const stored = localStorage.getItem("theme");
+    if (stored === "light" || stored === "dark") return stored;
+  } catch { /* localStorage unavailable */ }
+  return "dark";
+}
+
 function getFittedSize(
   imgW: number, imgH: number, cw: number, ch: number,
 ): { fw: number; fh: number } {
@@ -53,6 +61,7 @@ function App() {
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const [subdirs, setSubdirs] = useState<SubdirInfo[]>([]);
+  const [theme, setTheme] = useState<"dark" | "light">(loadTheme);
 
   // Zoom & pan
   const [zoom, setZoom] = useState(1);
@@ -317,6 +326,20 @@ function App() {
     }
   }, [images, currentFolder]);
 
+  // Sync theme attribute and meta tag
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try { localStorage.setItem("theme", theme); } catch { /* ignore */ }
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      meta.setAttribute("content", theme === "dark" ? "#080808" : "#faf8f5");
+    }
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  }, []);
+
   // Keyboard
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -520,6 +543,21 @@ function App() {
         )}
 
         <div className="toolbar-right">
+          <button className="toolbar-btn" onClick={toggleTheme} title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
+            {theme === "dark" ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="5" />
+                <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+            )}
+          </button>
           {imageUrl && (
             <div className="zoom-controls">
               <button className="toolbar-btn" onClick={() => {
