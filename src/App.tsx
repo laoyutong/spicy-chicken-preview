@@ -158,7 +158,7 @@ function App() {
     if (cw <= 0 || ch <= 0) return;
 
     const oldZ = zoomRef.current;
-    const newZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldZ + step));
+    const newZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldZ + step * oldZ));
     if (newZ === oldZ) return;
 
     const ratio = newZ / oldZ;
@@ -326,14 +326,35 @@ function App() {
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         navigate(1);
-      } else if (e.key === "0" && !e.metaKey && !e.ctrlKey) {
+      } else if (e.key === "0") {
+        // 0 or Cmd/Ctrl+0: reset zoom
         e.preventDefault();
         resetView();
+      } else if ((e.key === "=" || e.key === "+") && (e.metaKey || e.ctrlKey)) {
+        // Cmd/Ctrl + =/+ : zoom in
+        e.preventDefault();
+        const el = imageAreaRef.current;
+        if (el) {
+          const r = el.getBoundingClientRect();
+          zoomToward(r.width / 2, r.height / 2, ZOOM_STEP * 2);
+        }
+      } else if (e.key === "-" && (e.metaKey || e.ctrlKey)) {
+        // Cmd/Ctrl + - : zoom out
+        e.preventDefault();
+        const el = imageAreaRef.current;
+        if (el) {
+          const r = el.getBoundingClientRect();
+          zoomToward(r.width / 2, r.height / 2, -ZOOM_STEP * 2);
+        }
+      } else if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
+        // Cmd/Ctrl + B : toggle sidebar
+        e.preventDefault();
+        setSidebarVisible(v => !v);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, resetView]);
+  }, [navigate, resetView, zoomToward]);
 
   const loadOpenedFile = useCallback(
     async (filePath: string) => {
@@ -466,7 +487,7 @@ function App() {
             <button
               className={`toolbar-btn${sidebarVisible ? " active" : ""}`}
               onClick={() => setSidebarVisible((v) => !v)}
-              title="Toggle sidebar"
+              title="Toggle sidebar (Cmd+B)"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -507,19 +528,19 @@ function App() {
                   const r = el.getBoundingClientRect();
                   zoomToward(r.width / 2, r.height / 2, -ZOOM_STEP * 2);
                 }
-              }} title="Zoom out">
+              }} title="Zoom out (Cmd+−)">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="8" y1="11" x2="14" y2="11" />
                 </svg>
               </button>
-              <span className="zoom-label" onClick={resetView} title="Reset zoom (press 0)">{zoomPercent}%</span>
+              <span className="zoom-label" onClick={resetView} title="Reset zoom (0 or Cmd+0)">{zoomPercent}%</span>
               <button className="toolbar-btn" onClick={() => {
                 const el = imageAreaRef.current;
                 if (el) {
                   const r = el.getBoundingClientRect();
                   zoomToward(r.width / 2, r.height / 2, ZOOM_STEP * 2);
                 }
-              }} title="Zoom in">
+              }} title="Zoom in (Cmd+=)">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="11" y1="8" x2="11" y2="14" /><line x1="8" y1="11" x2="14" y2="11" />
                 </svg>
@@ -564,7 +585,7 @@ function App() {
               <polyline points="21 15 16 10 5 21" />
             </svg>
             <p className="state-text">Click the folder icon to open an image</p>
-            <p className="state-hint">Scroll to zoom · Drag to pan · Double-click to reset · ← → to navigate</p>
+            <p className="state-hint">Scroll or Cmd+/− to zoom · Drag to pan · Double-click or 0 to reset · ← → to navigate</p>
           </div>
         )}
       </div>
