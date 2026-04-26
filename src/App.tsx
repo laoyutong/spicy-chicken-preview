@@ -23,6 +23,11 @@ function getFittedSize(
   return { fw: ch * imgAspect, fh: ch };
 }
 
+interface SubdirInfo {
+  name: string;
+  path: string;
+}
+
 function clampPan(
   px: number, py: number, zoomVal: number,
   imgW: number, imgH: number, cw: number, ch: number,
@@ -46,6 +51,8 @@ function App() {
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(false);
+  const [currentFolder, setCurrentFolder] = useState<string | null>(null);
+  const [subdirs, setSubdirs] = useState<SubdirInfo[]>([]);
 
   // Zoom & pan
   const [zoom, setZoom] = useState(1);
@@ -166,6 +173,12 @@ function App() {
     setPanY(c.y);
   }, []);
 
+  function getParentDir(filePath: string): string {
+    const normalized = filePath.replace(/\\/g, "/");
+    const lastSlash = normalized.lastIndexOf("/");
+    return lastSlash >= 0 ? normalized.substring(0, lastSlash) : normalized;
+  }
+
   // ── Image loading ─────────────────────────────────────────────
 
   const resetView = useCallback(() => {
@@ -206,6 +219,40 @@ function App() {
     [resetView, draw]
   );
 
+  const loadFolder = useCallback(
+    async (folderPath: string, selectFile?: string) => {
+      try {
+        const result: {
+          parent: string | null;
+          subdirs: SubdirInfo[];
+          images: string[];
+        } = await invoke("list_folder_contents", { folderPath });
+        setCurrentFolder(folderPath);
+        setImages(result.images);
+        setSubdirs(result.subdirs);
+        imgW.current = 0;
+        imgH.current = 0;
+        sourceImg.current = null;
+
+        if (selectFile && result.images.includes(selectFile)) {
+          const idx = result.images.indexOf(selectFile);
+          setCurrentIndex(idx);
+          await loadImage(selectFile, true);
+        } else if (result.images.length > 0) {
+          setCurrentIndex(0);
+          await loadImage(result.images[0], true);
+        } else {
+          setCurrentIndex(0);
+          setCurrentFile(null);
+          setImageUrl(null);
+        }
+      } catch {
+        setError("Failed to list folder contents");
+      }
+    },
+    [loadImage]
+  );
+
   const openFile = useCallback(async () => {
     const selected = await open({
       multiple: false,
@@ -218,22 +265,10 @@ function App() {
     });
 
     if (selected) {
-      try {
-        const imageList: string[] = await invoke("list_images_in_folder", {
-          filePath: selected,
-        });
-        const idx = imageList.indexOf(selected as string);
-        setImages(imageList);
-        setCurrentIndex(idx >= 0 ? idx : 0);
-        imgW.current = 0;
-        imgH.current = 0;
-        sourceImg.current = null;
-        await loadImage(selected as string, true);
-      } catch {
-        setError("Failed to list images in folder");
-      }
+      const folderPath = getParentDir(selected as string);
+      await loadFolder(folderPath, selected as string);
     }
-  }, [loadImage]);
+  }, [loadFolder]);
 
   const navigate = useCallback(
     (delta: number) => {
@@ -260,12 +295,27 @@ function App() {
     [images, currentIndex, loadImage]
   );
 
+  const navigateToFolder = useCallback(
+    async (folderPath: string) => {
+      await loadFolder(folderPath);
+    },
+    [loadFolder]
+  );
+
+  const navigateUp = useCallback(async () => {
+    if (!currentFolder) return;
+    const parentPath = getParentDir(currentFolder);
+    if (parentPath && parentPath !== currentFolder) {
+      await loadFolder(parentPath);
+    }
+  }, [currentFolder, loadFolder]);
+
   // Auto-show sidebar when a folder is loaded
   useEffect(() => {
-    if (images.length > 0) {
+    if (images.length > 0 || currentFolder) {
       setSidebarVisible(true);
     }
-  }, [images]);
+  }, [images, currentFolder]);
 
   // Keyboard
   useEffect(() => {
@@ -287,22 +337,10 @@ function App() {
 
   const loadOpenedFile = useCallback(
     async (filePath: string) => {
-      try {
-        const imageList: string[] = await invoke("list_images_in_folder", {
-          filePath,
-        });
-        const idx = imageList.indexOf(filePath);
-        setImages(imageList);
-        setCurrentIndex(idx >= 0 ? idx : 0);
-        imgW.current = 0;
-        imgH.current = 0;
-        sourceImg.current = null;
-        await loadImage(filePath, true);
-      } catch {
-        setError("Failed to open image");
-      }
+      const folderPath = getParentDir(filePath);
+      await loadFolder(folderPath, filePath);
     },
-    [loadImage]
+    [loadFolder]
   );
 
   // File opened from outside (e.g., macOS "Open With")
@@ -409,6 +447,11 @@ function App() {
         currentIndex={currentIndex}
         onSelect={jumpTo}
         visible={sidebarVisible}
+        currentFolder={currentFolder}
+        subdirs={subdirs}
+        parentPath={currentFolder ? getParentDir(currentFolder) : null}
+        onNavigateFolder={navigateToFolder}
+        onNavigateUp={navigateUp}
       />
       <div className="viewer-right">
         <div className="toolbar">
@@ -419,7 +462,7 @@ function App() {
               <polyline points="9 22 9 12 15 12 15 22" />
             </svg>
           </button>
-          {images.length > 0 && (
+          {(images.length > 0 || currentFolder) && (
             <button
               className={`toolbar-btn${sidebarVisible ? " active" : ""}`}
               onClick={() => setSidebarVisible((v) => !v)}
@@ -503,6 +546,16 @@ function App() {
           </div>
         ) : imageUrl ? (
           <canvas ref={canvasRef} className="preview-canvas" />
+        ) : currentFolder ? (
+          <div className="state-message">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="state-icon">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+            <p className="state-text">This folder contains no images</p>
+            {subdirs.length > 0 && (
+              <p className="state-hint">Select a subfolder from the sidebar</p>
+            )}
+          </div>
         ) : (
           <div className="state-message">
             <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="state-icon">

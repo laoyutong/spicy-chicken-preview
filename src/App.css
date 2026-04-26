@@ -448,6 +448,106 @@ html, body, #root {
   border-color: rgba(184, 92, 92, 0.18);
 }
 
+/* ── Sidebar Folder Header ─────────────────────────────────────── */
+
+.sidebar-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.sidebar-folder-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.sidebar-folder-icon {
+  flex-shrink: 0;
+  color: var(--accent);
+  opacity: 0.7;
+}
+
+.sidebar-folder-name {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.1px;
+}
+
+.sidebar-up-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-up-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+/* ── Sidebar Subdirectory List ──────────────────────────────────── */
+
+.sidebar-subdirs {
+  padding: 4px 5px;
+}
+
+.sidebar-folder-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.sidebar-folder-item:hover {
+  background: var(--bg-hover);
+}
+
+.sidebar-folder-item .sidebar-folder-icon {
+  color: var(--accent);
+  opacity: 0.55;
+}
+
+.sidebar-folder-item:hover .sidebar-folder-icon {
+  opacity: 0.8;
+}
+
+.sidebar-folder-item .sidebar-folder-name {
+  color: var(--text-muted);
+}
+
+.sidebar-folder-item:hover .sidebar-folder-name {
+  color: var(--text-primary);
+}
+
+/* ── Sidebar Divider ────────────────────────────────────────────── */
+
+.sidebar-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border-subtle);
+}
+
 /* ── Sidebar Filename ──────────────────────────────────────────── */
 
 .sidebar-filename {
