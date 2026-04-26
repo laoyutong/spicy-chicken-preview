@@ -5,9 +5,17 @@ interface FullscreenStripProps {
   images: string[];
   currentIndex: number;
   onSelect: (index: number) => void;
+  slideshowActive: boolean;
+  slideshowInterval: number;
+  onToggleSlideshow: () => void;
+  onCycleInterval: () => void;
 }
 
-export default function FullscreenStrip({ images, currentIndex, onSelect }: FullscreenStripProps) {
+export default function FullscreenStrip({
+  images, currentIndex, onSelect,
+  slideshowActive, slideshowInterval,
+  onToggleSlideshow, onCycleInterval,
+}: FullscreenStripProps) {
   const [visible, setVisible] = useState(true);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stripRef = useRef<HTMLDivElement>(null);
@@ -77,6 +85,31 @@ export default function FullscreenStrip({ images, currentIndex, onSelect }: Full
             </div>
           );
         })}
+      </div>
+      <div className="fullscreen-strip-controls">
+        <button
+          className="fullscreen-strip-btn"
+          onClick={onToggleSlideshow}
+          title={slideshowActive ? "Pause" : "Play"}
+        >
+          {slideshowActive ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <rect x="6" y="4" width="4" height="16" rx="1" />
+              <rect x="14" y="4" width="4" height="16" rx="1" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <polygon points="6,3 20,12 6,21" />
+            </svg>
+          )}
+        </button>
+        <button
+          className="fullscreen-strip-btn fullscreen-interval-btn"
+          onClick={onCycleInterval}
+          title="Change interval"
+        >
+          <span className="fullscreen-interval-label">{slideshowInterval}s</span>
+        </button>
       </div>
     </div>
   );

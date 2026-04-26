@@ -67,6 +67,8 @@ function App() {
   const [theme, setTheme] = useState<"dark" | "light">(loadTheme);
   const [language, setLanguage] = useState<Language>(loadLanguage);
   const [fullscreen, setFullscreen] = useState(false);
+  const [slideshowActive, setSlideshowActive] = useState(false);
+  const [slideshowInterval, setSlideshowInterval] = useState(3);
 
   // Image preload cache
   const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -92,6 +94,12 @@ function App() {
   useEffect(() => { zoomRef.current = zoom; }, [zoom]);
   useEffect(() => { panXRef.current = panX; }, [panX]);
   useEffect(() => { panYRef.current = panY; }, [panY]);
+
+  // Refs for slideshow auto-advance (avoid stale closures in setInterval)
+  const imagesRef = useRef(images);
+  useEffect(() => { imagesRef.current = images; }, [images]);
+  const currentIndexRef = useRef(currentIndex);
+  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
 
   // ── Canvas rendering ──────────────────────────────────────────
 
@@ -383,6 +391,23 @@ function App() {
     try { localStorage.setItem("language", language); } catch { /* ignore */ }
   }, [language]);
 
+  // Slideshow auto-advance
+  useEffect(() => {
+    if (!slideshowActive || images.length === 0) return;
+    const timer = setInterval(() => {
+      const imgs = imagesRef.current;
+      if (imgs.length === 0) return;
+      const newIndex = (currentIndexRef.current + 1) % imgs.length;
+      currentIndexRef.current = newIndex;
+      setCurrentIndex(newIndex);
+      imgW.current = 0;
+      imgH.current = 0;
+      sourceImg.current = null;
+      loadImage(imgs[newIndex], true);
+    }, slideshowInterval * 1000);
+    return () => clearInterval(timer);
+  }, [slideshowActive, slideshowInterval, images.length, loadImage]);
+
   // Sync fullscreen state with Tauri native window
   useEffect(() => {
     const win = getCurrentWebviewWindow();
@@ -423,14 +448,34 @@ function App() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
   }, []);
 
+  const cycleSlideshowInterval = useCallback(() => {
+    const intervals = [2, 3, 5, 10];
+    const idx = intervals.indexOf(slideshowInterval);
+    setSlideshowInterval(intervals[(idx + 1) % intervals.length]);
+  }, [slideshowInterval]);
+
+  const toggleSlideshow = useCallback(() => {
+    setSlideshowActive((a) => !a);
+  }, []);
+
   // Keyboard
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Space: toggle slideshow (only if an image is loaded)
+      if (e.key === " ") {
+        if (imageUrl) {
+          e.preventDefault();
+          setSlideshowActive((a) => !a);
+        }
+        return;
+      }
       if (e.key === "ArrowLeft") {
         e.preventDefault();
+        setSlideshowActive(false);
         navigate(-1);
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
+        setSlideshowActive(false);
         navigate(1);
       } else if (e.key === "0") {
         // 0 or Cmd/Ctrl+0: reset zoom
@@ -464,7 +509,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, resetView, zoomToward, toggleFullscreen]);
+  }, [navigate, resetView, zoomToward, toggleFullscreen, imageUrl]);
 
   const loadOpenedFile = useCallback(
     async (filePath: string) => {
@@ -576,7 +621,7 @@ function App() {
       <Sidebar
         images={images}
         currentIndex={currentIndex}
-        onSelect={jumpTo}
+        onSelect={(index) => { setSlideshowActive(false); jumpTo(index); }}
         visible={sidebarVisible}
         currentFolder={currentFolder}
         subdirs={subdirs}
@@ -626,6 +671,29 @@ function App() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="9 18 15 12 9 6" />
               </svg>
+            </button>
+            <button
+              className="toolbar-btn"
+              onClick={toggleSlideshow}
+              title={slideshowActive ? t("slideshow.pause", language) : t("slideshow.play", language)}
+            >
+              {slideshowActive ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  <rect x="6" y="4" width="4" height="16" rx="1" />
+                  <rect x="14" y="4" width="4" height="16" rx="1" />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  <polygon points="6,3 20,12 6,21" />
+                </svg>
+              )}
+            </button>
+            <button
+              className="toolbar-btn interval-btn"
+              onClick={cycleSlideshowInterval}
+              title={t("slideshow.interval", language)}
+            >
+              <span className="interval-label">{slideshowInterval}s</span>
             </button>
           </div>
         )}
@@ -747,7 +815,11 @@ function App() {
         <FullscreenStrip
           images={images}
           currentIndex={currentIndex}
-          onSelect={jumpTo}
+          onSelect={(index) => { setSlideshowActive(false); jumpTo(index); }}
+          slideshowActive={slideshowActive}
+          slideshowInterval={slideshowInterval}
+          onToggleSlideshow={toggleSlideshow}
+          onCycleInterval={cycleSlideshowInterval}
         />
       )}
       </div>

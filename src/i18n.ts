@@ -22,6 +22,9 @@ const dict = {
       "Scroll or Cmd+/− to zoom · Drag to pan · Double-click or F for fullscreen · 0 to reset · ← → to navigate",
     "toolbar.fullscreen": "Fullscreen (F)",
     "toolbar.exitFullscreen": "Exit fullscreen (F or Esc)",
+    "slideshow.play": "Play slideshow (Space)",
+    "slideshow.pause": "Pause slideshow (Space)",
+    "slideshow.interval": "Change interval",
     "sidebar.upTo": "Up to {name}",
   },
   zh: {
@@ -45,6 +48,9 @@ const dict = {
       "滚轮或 Cmd+/− 缩放 · 拖拽平移 · 双击或 F 全屏 · 0 重置 · ← → 导航",
     "toolbar.fullscreen": "全屏 (F)",
     "toolbar.exitFullscreen": "退出全屏 (F 或 Esc)",
+    "slideshow.play": "播放幻灯片（空格）",
+    "slideshow.pause": "暂停幻灯片（空格）",
+    "slideshow.interval": "切换间隔",
     "sidebar.upTo": "返回 {name}",
   },
 };
