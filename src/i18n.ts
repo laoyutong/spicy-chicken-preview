@@ -1,0 +1,65 @@
+export type Language = "en" | "zh";
+
+const dict = {
+  en: {
+    "error.loadFailed": "Failed to load image",
+    "error.listFailed": "Failed to list folder contents",
+    "error.openAnother": "Use the toolbar button to open another image",
+    "toolbar.openImage": "Open image",
+    "toolbar.toggleSidebar": "Toggle sidebar (Cmd+B)",
+    "toolbar.previous": "Previous (←)",
+    "toolbar.next": "Next (→)",
+    "toolbar.switchToLight": "Switch to light theme",
+    "toolbar.switchToDark": "Switch to dark theme",
+    "toolbar.switchLang": "Switch language",
+    "toolbar.zoomOut": "Zoom out (Cmd+−)",
+    "toolbar.zoomIn": "Zoom in (Cmd+=)",
+    "toolbar.resetZoom": "Reset zoom (0 or Cmd+0)",
+    "empty.noImages": "This folder contains no images",
+    "empty.selectSubfolder": "Select a subfolder from the sidebar",
+    "empty.openPrompt": "Click the folder icon to open an image",
+    "empty.hint":
+      "Scroll or Cmd+/− to zoom · Drag to pan · Double-click or 0 to reset · ← → to navigate",
+    "sidebar.upTo": "Up to {name}",
+  },
+  zh: {
+    "error.loadFailed": "图片加载失败",
+    "error.listFailed": "文件夹内容读取失败",
+    "error.openAnother": "使用工具栏按钮打开其他图片",
+    "toolbar.openImage": "打开图片",
+    "toolbar.toggleSidebar": "切换侧边栏 (Cmd+B)",
+    "toolbar.previous": "上一张 (←)",
+    "toolbar.next": "下一张 (→)",
+    "toolbar.switchToLight": "切换到浅色主题",
+    "toolbar.switchToDark": "切换到深色主题",
+    "toolbar.switchLang": "切换语言",
+    "toolbar.zoomOut": "缩小 (Cmd+−)",
+    "toolbar.zoomIn": "放大 (Cmd+=)",
+    "toolbar.resetZoom": "重置缩放 (0 或 Cmd+0)",
+    "empty.noImages": "此文件夹中没有图片",
+    "empty.selectSubfolder": "从侧边栏选择子文件夹",
+    "empty.openPrompt": "点击文件夹图标打开图片",
+    "empty.hint":
+      "滚轮或 Cmd+/− 缩放 · 拖拽平移 · 双击或 0 重置 · ← → 导航",
+    "sidebar.upTo": "返回 {name}",
+  },
+};
+
+export function t(key: keyof typeof dict.en, lang: Language): string {
+  return dict[lang][key];
+}
+
+export function translate(key: string | null, lang: Language): string {
+  if (!key) return "";
+  return (dict[lang] as Record<string, string>)[key] ?? key;
+}
+
+export function loadLanguage(): Language {
+  try {
+    const stored = localStorage.getItem("language");
+    if (stored === "en" || stored === "zh") return stored;
+  } catch {
+    /* localStorage unavailable */
+  }
+  return "en";
+}

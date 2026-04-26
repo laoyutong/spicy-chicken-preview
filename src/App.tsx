@@ -4,6 +4,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import Sidebar from "./Sidebar";
+import { loadLanguage, t, translate, type Language } from "./i18n";
 import "./App.css";
 
 const MIN_ZOOM = 0.5;
@@ -62,6 +63,7 @@ function App() {
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const [subdirs, setSubdirs] = useState<SubdirInfo[]>([]);
   const [theme, setTheme] = useState<"dark" | "light">(loadTheme);
+  const [language, setLanguage] = useState<Language>(loadLanguage);
 
   // Zoom & pan
   const [zoom, setZoom] = useState(1);
@@ -216,13 +218,13 @@ function App() {
           draw();
         };
         img.onerror = () => {
-          setError("Failed to load image");
+          setError("error.loadFailed");
           sourceImg.current = null;
         };
         img.src = url;
         sourceImg.current = null;
       } catch {
-        setError("Failed to load image");
+        setError("error.loadFailed");
       }
     },
     [resetView, draw]
@@ -256,7 +258,7 @@ function App() {
           setImageUrl(null);
         }
       } catch {
-        setError("Failed to list folder contents");
+        setError("error.listFailed");
       }
     },
     [loadImage]
@@ -335,6 +337,12 @@ function App() {
       meta.setAttribute("content", theme === "dark" ? "#080808" : "#faf8f5");
     }
   }, [theme]);
+
+  // Sync language attribute and localStorage
+  useEffect(() => {
+    document.documentElement.lang = language;
+    try { localStorage.setItem("language", language); } catch { /* ignore */ }
+  }, [language]);
 
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
@@ -496,11 +504,12 @@ function App() {
         parentPath={currentFolder ? getParentDir(currentFolder) : null}
         onNavigateFolder={navigateToFolder}
         onNavigateUp={navigateUp}
+        language={language}
       />
       <div className="viewer-right">
         <div className="toolbar">
         <div className="toolbar-left">
-          <button className="toolbar-btn" onClick={openFile} title="Open image">
+          <button className="toolbar-btn" onClick={openFile} title={t("toolbar.openImage", language)}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
               <polyline points="9 22 9 12 15 12 15 22" />
@@ -510,7 +519,7 @@ function App() {
             <button
               className={`toolbar-btn${sidebarVisible ? " active" : ""}`}
               onClick={() => setSidebarVisible((v) => !v)}
-              title="Toggle sidebar (Cmd+B)"
+              title={t("toolbar.toggleSidebar", language)}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -526,7 +535,7 @@ function App() {
 
         {images.length > 1 && (
           <div className="toolbar-center">
-            <button className="toolbar-btn" onClick={() => navigate(-1)} title="Previous (←)">
+            <button className="toolbar-btn" onClick={() => navigate(-1)} title={t("toolbar.previous", language)}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 18 9 12 15 6" />
               </svg>
@@ -534,7 +543,7 @@ function App() {
             <span className="toolbar-counter">
               {currentIndex + 1} / {images.length}
             </span>
-            <button className="toolbar-btn" onClick={() => navigate(1)} title="Next (→)">
+            <button className="toolbar-btn" onClick={() => navigate(1)} title={t("toolbar.next", language)}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="9 18 15 12 9 6" />
               </svg>
@@ -543,7 +552,14 @@ function App() {
         )}
 
         <div className="toolbar-right">
-          <button className="toolbar-btn" onClick={toggleTheme} title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
+          <button className="toolbar-btn" onClick={() => setLanguage((l) => (l === "en" ? "zh" : "en"))} title={t("toolbar.switchLang", language)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+          </button>
+          <button className="toolbar-btn" onClick={toggleTheme} title={theme === "dark" ? t("toolbar.switchToLight", language) : t("toolbar.switchToDark", language)}>
             {theme === "dark" ? (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="5" />
@@ -566,19 +582,19 @@ function App() {
                   const r = el.getBoundingClientRect();
                   zoomToward(r.width / 2, r.height / 2, -ZOOM_STEP * 2);
                 }
-              }} title="Zoom out (Cmd+−)">
+              }} title={t("toolbar.zoomOut", language)}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="8" y1="11" x2="14" y2="11" />
                 </svg>
               </button>
-              <span className="zoom-label" onClick={resetView} title="Reset zoom (0 or Cmd+0)">{zoomPercent}%</span>
+              <span className="zoom-label" onClick={resetView} title={t("toolbar.resetZoom", language)}>{zoomPercent}%</span>
               <button className="toolbar-btn" onClick={() => {
                 const el = imageAreaRef.current;
                 if (el) {
                   const r = el.getBoundingClientRect();
                   zoomToward(r.width / 2, r.height / 2, ZOOM_STEP * 2);
                 }
-              }} title="Zoom in (Cmd+=)">
+              }} title={t("toolbar.zoomIn", language)}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="11" y1="8" x2="11" y2="14" /><line x1="8" y1="11" x2="14" y2="11" />
                 </svg>
@@ -600,8 +616,8 @@ function App() {
       >
         {error ? (
           <div className="state-message">
-            <p className="state-error">{error}</p>
-            <p className="state-hint">Use the toolbar button to open another image</p>
+            <p className="state-error">{translate(error, language)}</p>
+            <p className="state-hint">{t("error.openAnother", language)}</p>
           </div>
         ) : imageUrl ? (
           <canvas ref={canvasRef} className="preview-canvas" />
@@ -610,9 +626,9 @@ function App() {
             <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="state-icon">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
-            <p className="state-text">This folder contains no images</p>
+            <p className="state-text">{t("empty.noImages", language)}</p>
             {subdirs.length > 0 && (
-              <p className="state-hint">Select a subfolder from the sidebar</p>
+              <p className="state-hint">{t("empty.selectSubfolder", language)}</p>
             )}
           </div>
         ) : (
@@ -622,8 +638,8 @@ function App() {
               <circle cx="8.5" cy="8.5" r="1.5" />
               <polyline points="21 15 16 10 5 21" />
             </svg>
-            <p className="state-text">Click the folder icon to open an image</p>
-            <p className="state-hint">Scroll or Cmd+/− to zoom · Drag to pan · Double-click or 0 to reset · ← → to navigate</p>
+            <p className="state-text">{t("empty.openPrompt", language)}</p>
+            <p className="state-hint">{t("empty.hint", language)}</p>
           </div>
         )}
       </div>

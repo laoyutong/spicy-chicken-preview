@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { t, type Language } from "./i18n";
 
 interface SubdirInfo {
   name: string;
@@ -146,6 +147,7 @@ interface SidebarProps {
   parentPath: string | null;
   onNavigateFolder: (folderPath: string) => void;
   onNavigateUp: () => void;
+  language: Language;
 }
 
 function getFolderName(folderPath: string): string {
@@ -164,6 +166,7 @@ export default function Sidebar({
   parentPath,
   onNavigateFolder,
   onNavigateUp,
+  language,
 }: SidebarProps) {
   const activeRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -218,7 +221,7 @@ export default function Sidebar({
             <button
               className="sidebar-up-btn"
               onClick={onNavigateUp}
-              title={`Up to ${getFolderName(parentPath)}`}
+              title={t("sidebar.upTo", language).replace("{name}", getFolderName(parentPath))}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 18 9 12 15 6"/>
