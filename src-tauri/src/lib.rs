@@ -16,6 +16,12 @@ struct SubdirInfo {
 }
 
 #[derive(serde::Serialize)]
+struct FileInfo {
+    size: u64,
+    extension: String,
+}
+
+#[derive(serde::Serialize)]
 struct FolderContents {
     parent: Option<String>,
     subdirs: Vec<SubdirInfo>,
@@ -124,6 +130,22 @@ fn list_folder_contents(folder_path: &str) -> Result<FolderContents, String> {
 }
 
 #[tauri::command]
+fn get_file_info(file_path: &str) -> Result<FileInfo, String> {
+    let path = Path::new(file_path);
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_uppercase();
+    Ok(FileInfo {
+        size: metadata.len(),
+        extension,
+    })
+}
+
+#[tauri::command]
 fn get_pending_file() -> Option<String> {
     let mut pending = PENDING_FILE.lock().unwrap();
     pending.take()
@@ -194,6 +216,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_images_in_folder,
             list_folder_contents,
+            get_file_info,
             get_pending_file,
             get_thumbnail
         ])

@@ -39,6 +39,13 @@ interface SubdirInfo {
   path: string;
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 function clampPan(
   px: number, py: number, zoomVal: number,
   imgW: number, imgH: number, cw: number, ch: number,
@@ -78,6 +85,11 @@ function App() {
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
   const [dragging, setDragging] = useState(false);
+
+  // File info for status bar
+  const [imageDimensions, setImageDimensions] = useState<{ w: number; h: number } | null>(null);
+  const [fileSize, setFileSize] = useState<number | null>(null);
+  const [fileFormat, setFileFormat] = useState<string | null>(null);
 
   const zoomRef = useRef(zoom);
   const panXRef = useRef(panX);
@@ -247,7 +259,11 @@ function App() {
           sourceImg.current = cached;
           imgW.current = cached.naturalWidth;
           imgH.current = cached.naturalHeight;
+          setImageDimensions({ w: cached.naturalWidth, h: cached.naturalHeight });
           draw();
+          invoke<{ size: number; extension: string }>("get_file_info", { filePath })
+            .then((info) => { setFileSize(info.size); setFileFormat(info.extension); })
+            .catch(() => { setFileSize(null); setFileFormat(null); });
           return;
         }
 
@@ -257,8 +273,13 @@ function App() {
           sourceImg.current = img;
           imgW.current = img.naturalWidth;
           imgH.current = img.naturalHeight;
+          setImageDimensions({ w: img.naturalWidth, h: img.naturalHeight });
           imageCache.current.set(filePath, img);
           draw();
+          // Fetch file metadata for status bar
+          invoke<{ size: number; extension: string }>("get_file_info", { filePath })
+            .then((info) => { setFileSize(info.size); setFileFormat(info.extension); })
+            .catch(() => { setFileSize(null); setFileFormat(null); });
           // Preload neighbours after current image loads
           const idx = images.indexOf(filePath);
           if (idx !== -1) preloadAdjacent(idx);
@@ -811,6 +832,30 @@ function App() {
           </div>
         )}
       </div>
+
+      {imageUrl && !error && (
+        <div className="status-bar">
+          <div className="status-bar-left">
+            {imageDimensions && (
+              <span className="status-item">
+                {imageDimensions.w} × {imageDimensions.h}
+              </span>
+            )}
+            {fileSize !== null && (
+              <span className="status-item">{formatFileSize(fileSize)}</span>
+            )}
+            {fileFormat && (
+              <span className="status-item status-format">{fileFormat}</span>
+            )}
+          </div>
+          <div className="status-bar-right">
+            <span className="status-item status-zoom" onClick={resetView} title={t("toolbar.resetZoom", language)}>
+              {zoomPercent}%
+            </span>
+          </div>
+        </div>
+      )}
+
       {fullscreen && images.length > 0 && (
         <FullscreenStrip
           images={images}

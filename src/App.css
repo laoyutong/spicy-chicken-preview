@@ -763,3 +763,55 @@ html, body, #root {
   width: 14px;
   height: 14px;
 }
+
+/* ── Status Bar ──────────────────────────────────────────────────── */
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 14px;
+  background-color: var(--bg-toolbar);
+  border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.status-bar-left,
+.status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.status-item {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.status-format {
+  color: var(--text-secondary);
+}
+
+.status-zoom {
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease;
+  padding: 2px 6px;
+  border-radius: 3px;
+  min-width: 38px;
+  text-align: right;
+}
+
+.status-zoom:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.viewer.fullscreen .status-bar {
+  display: none;
+}
