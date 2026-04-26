@@ -590,3 +590,122 @@ html, body, #root {
   min-width: 0;
   letter-spacing: 0.1px;
 }
+
+/* ── Fullscreen ──────────────────────────────────────────────────── */
+
+.viewer.fullscreen .toolbar {
+  display: none;
+}
+
+.viewer.fullscreen .sidebar {
+  display: none;
+}
+
+.viewer.fullscreen .image-area {
+  background-color: #000;
+}
+
+.viewer.fullscreen .image-area::before {
+  background: none;
+}
+
+/* ── Fullscreen Thumbnail Strip ──────────────────────────────────── */
+
+.fullscreen-strip {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 80px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 80%, transparent 100%);
+  display: flex;
+  align-items: flex-end;
+  padding: 0 12px 10px;
+  z-index: 100;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+
+.fullscreen-strip.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.fullscreen-strip-list {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.fullscreen-strip-list::-webkit-scrollbar {
+  display: none;
+}
+
+.fullscreen-strip-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 2px;
+  border: 2px solid transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  flex-shrink: 0;
+  max-width: 72px;
+  min-width: 0;
+}
+
+.fullscreen-strip-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.fullscreen-strip-item.active {
+  border-color: var(--accent);
+  background: rgba(196, 149, 106, 0.1);
+}
+
+.fullscreen-strip-item .sidebar-thumbnail {
+  width: 56px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.fullscreen-strip-item.active .sidebar-thumbnail {
+  border-color: var(--accent-border);
+}
+
+.fullscreen-strip-name {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 68px;
+  text-align: center;
+}
+
+.fullscreen-strip-item.active .fullscreen-strip-name {
+  color: var(--accent);
+}
+
+/* Pulse animation for loading thumbnails in strip */
+.fullscreen-strip-item .sidebar-thumbnail-loading {
+  animation: thumbnail-pulse 2s ease-in-out infinite;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.fullscreen-strip-item .sidebar-thumbnail-loading .thumbnail-placeholder-icon {
+  color: rgba(255, 255, 255, 0.2);
+  width: 14px;
+  height: 14px;
+}

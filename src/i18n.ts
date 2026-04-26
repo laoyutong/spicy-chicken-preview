@@ -19,7 +19,9 @@ const dict = {
     "empty.selectSubfolder": "Select a subfolder from the sidebar",
     "empty.openPrompt": "Click the folder icon to open an image",
     "empty.hint":
-      "Scroll or Cmd+/− to zoom · Drag to pan · Double-click or 0 to reset · ← → to navigate",
+      "Scroll or Cmd+/− to zoom · Drag to pan · Double-click or F for fullscreen · 0 to reset · ← → to navigate",
+    "toolbar.fullscreen": "Fullscreen (F)",
+    "toolbar.exitFullscreen": "Exit fullscreen (F or Esc)",
     "sidebar.upTo": "Up to {name}",
   },
   zh: {
@@ -40,7 +42,9 @@ const dict = {
     "empty.selectSubfolder": "从侧边栏选择子文件夹",
     "empty.openPrompt": "点击文件夹图标打开图片",
     "empty.hint":
-      "滚轮或 Cmd+/− 缩放 · 拖拽平移 · 双击或 0 重置 · ← → 导航",
+      "滚轮或 Cmd+/− 缩放 · 拖拽平移 · 双击或 F 全屏 · 0 重置 · ← → 导航",
+    "toolbar.fullscreen": "全屏 (F)",
+    "toolbar.exitFullscreen": "退出全屏 (F 或 Esc)",
     "sidebar.upTo": "返回 {name}",
   },
 };

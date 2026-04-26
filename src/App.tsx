@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open } from "@tauri-apps/plugin-dialog";
 import Sidebar from "./Sidebar";
+import FullscreenStrip from "./FullscreenStrip";
 import { loadLanguage, t, translate, type Language } from "./i18n";
 import "./App.css";
 
@@ -64,6 +66,10 @@ function App() {
   const [subdirs, setSubdirs] = useState<SubdirInfo[]>([]);
   const [theme, setTheme] = useState<"dark" | "light">(loadTheme);
   const [language, setLanguage] = useState<Language>(loadLanguage);
+  const [fullscreen, setFullscreen] = useState(false);
+
+  // Image preload cache
+  const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
 
   // Zoom & pan
   const [zoom, setZoom] = useState(1);
@@ -198,6 +204,24 @@ function App() {
     setPanY(0);
   }, []);
 
+  // Preload adjacent images into cache for instant navigation
+  const preloadAdjacent = useCallback(
+    (index: number) => {
+      const targets = [index - 1, index + 1];
+      for (const i of targets) {
+        if (i >= 0 && i < images.length) {
+          const path = images[i];
+          if (!imageCache.current.has(path)) {
+            const img = new Image();
+            img.src = convertFileSrc(path);
+            imageCache.current.set(path, img);
+          }
+        }
+      }
+    },
+    [images],
+  );
+
   const loadImage = useCallback(
     async (filePath: string, reset: boolean) => {
       try {
@@ -209,13 +233,27 @@ function App() {
           resetView();
         }
 
-        // Preload image into off-screen Image element
+        // Check cache first for instant display
+        const cached = imageCache.current.get(filePath);
+        if (cached && cached.complete && cached.naturalWidth > 0) {
+          sourceImg.current = cached;
+          imgW.current = cached.naturalWidth;
+          imgH.current = cached.naturalHeight;
+          draw();
+          return;
+        }
+
+        // Load new image
         const img = new Image();
         img.onload = () => {
           sourceImg.current = img;
           imgW.current = img.naturalWidth;
           imgH.current = img.naturalHeight;
+          imageCache.current.set(filePath, img);
           draw();
+          // Preload neighbours after current image loads
+          const idx = images.indexOf(filePath);
+          if (idx !== -1) preloadAdjacent(idx);
         };
         img.onerror = () => {
           setError("error.loadFailed");
@@ -227,7 +265,7 @@ function App() {
         setError("error.loadFailed");
       }
     },
-    [resetView, draw]
+    [resetView, draw, images, preloadAdjacent]
   );
 
   const loadFolder = useCallback(
@@ -244,6 +282,7 @@ function App() {
         imgW.current = 0;
         imgH.current = 0;
         sourceImg.current = null;
+        imageCache.current.clear();
 
         if (selectFile && result.images.includes(selectFile)) {
           const idx = result.images.indexOf(selectFile);
@@ -344,6 +383,42 @@ function App() {
     try { localStorage.setItem("language", language); } catch { /* ignore */ }
   }, [language]);
 
+  // Sync fullscreen state with Tauri native window
+  useEffect(() => {
+    const win = getCurrentWebviewWindow();
+    const setup = async () => {
+      try {
+        // Check initial fullscreen state on load
+        const initial = await win.isFullscreen();
+        setFullscreen(initial);
+
+        // Listen for state changes (e.g., via native green button)
+        const unlisten = await win.listen("tauri://resize", async () => {
+          const fs = await win.isFullscreen();
+          setFullscreen(fs);
+        });
+        return unlisten;
+      } catch (e) {
+        console.error("Fullscreen setup error:", e);
+      }
+    };
+    const promise = setup();
+    return () => {
+      promise.then((unlisten) => unlisten?.());
+    };
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      const win = getCurrentWebviewWindow();
+      const current = await win.isFullscreen();
+      await win.setFullscreen(!current);
+      setFullscreen(!current);
+    } catch (e) {
+      console.error("Toggle fullscreen error:", e);
+    }
+  }, []);
+
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
   }, []);
@@ -381,11 +456,15 @@ function App() {
         // Cmd/Ctrl + B : toggle sidebar
         e.preventDefault();
         setSidebarVisible(v => !v);
+      } else if (e.key === "f" || e.key === "F") {
+        // F: toggle fullscreen
+        e.preventDefault();
+        toggleFullscreen();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, resetView, zoomToward]);
+  }, [navigate, resetView, zoomToward, toggleFullscreen]);
 
   const loadOpenedFile = useCallback(
     async (filePath: string) => {
@@ -483,7 +562,7 @@ function App() {
     },
   }).current;
 
-  const handleDoubleClick = () => resetView();
+  const handleDoubleClick = () => toggleFullscreen();
 
   const fileName = currentFile
     ? currentFile.split(/[/\\]/).pop() || currentFile
@@ -493,7 +572,7 @@ function App() {
   const areaClass = "image-area" + (dragging ? " dragging" : imageUrl ? " grab" : "");
 
   return (
-    <div className="viewer">
+    <div className={`viewer${fullscreen ? " fullscreen" : ""}`}>
       <Sidebar
         images={images}
         currentIndex={currentIndex}
@@ -574,6 +653,27 @@ function App() {
               </svg>
             )}
           </button>
+          <button
+            className="toolbar-btn"
+            onClick={toggleFullscreen}
+            title={fullscreen ? t("toolbar.exitFullscreen", language) : t("toolbar.fullscreen", language)}
+          >
+            {fullscreen ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="14" y1="10" x2="21" y2="3" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 3 21 3 21 9" />
+                <polyline points="9 21 3 21 3 15" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            )}
+          </button>
           {imageUrl && (
             <div className="zoom-controls">
               <button className="toolbar-btn" onClick={() => {
@@ -643,6 +743,13 @@ function App() {
           </div>
         )}
       </div>
+      {fullscreen && images.length > 0 && (
+        <FullscreenStrip
+          images={images}
+          currentIndex={currentIndex}
+          onSelect={jumpTo}
+        />
+      )}
       </div>
     </div>
   );
