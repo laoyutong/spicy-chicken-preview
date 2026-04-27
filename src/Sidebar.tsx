@@ -55,6 +55,7 @@ interface SidebarProps {
   onNavigateFolder: (folderPath: string) => void;
   onNavigateUp: () => void;
   language: Language;
+  recentFolders?: SubdirInfo[];
 }
 
 function getFolderName(folderPath: string): string {
@@ -74,10 +75,12 @@ export default function Sidebar({
   onNavigateFolder,
   onNavigateUp,
   language,
+  recentFolders = [],
 }: SidebarProps) {
   const activeRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(loadStoredWidth);
+  const [recentCollapsed, setRecentCollapsed] = useState(false);
   const resizing = useRef(false);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
@@ -118,10 +121,50 @@ export default function Sidebar({
   }, [sidebarWidth]);
 
   if (!visible) return null;
-  if (images.length === 0 && !currentFolder) return null;
+  if (images.length === 0 && !currentFolder && recentFolders.length === 0) return null;
 
   return (
     <div className="sidebar" style={{ width: sidebarWidth }}>
+      {recentFolders.length > 0 && (
+        <div className={`recent-folders${!currentFolder ? " recent-folders--welcome" : ""}`}>
+          <div
+            className={`recent-folders-title${recentCollapsed ? " collapsed" : ""}`}
+            onClick={() => setRecentCollapsed((c) => !c)}
+          >
+            <svg
+              className="recent-folders-chevron"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points={recentCollapsed ? "6 9 12 15 18 9" : "15 18 9 12 15 6"} />
+            </svg>
+            <span>{t("sidebar.recentFolders", language)}</span>
+          </div>
+          {!recentCollapsed && (
+            <div className="recent-folders-list">
+              {recentFolders.map((f) => (
+                <div
+                  key={f.path}
+                  className="recent-folder-item"
+                  onClick={() => onNavigateFolder(f.path)}
+                  title={f.path}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                  </svg>
+                  <span className="recent-folder-name">{f.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {currentFolder && (
         <div className="sidebar-folder-header">
           {parentPath && parentPath !== currentFolder && (

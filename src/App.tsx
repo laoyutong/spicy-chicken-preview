@@ -131,6 +131,13 @@ function App() {
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const [subdirs, setSubdirs] = useState<SubdirInfo[]>([]);
+  const [recentFolders, setRecentFolders] = useState<SubdirInfo[]>(() => {
+    try {
+      const stored = localStorage.getItem("recent-folders");
+      if (stored) return JSON.parse(stored);
+    } catch { /* localStorage unavailable */ }
+    return [];
+  });
   const [theme, setTheme] = useState<"dark" | "light">(loadTheme);
   const [language, setLanguage] = useState<Language>(loadLanguage);
   const [fullscreen, setFullscreen] = useState(false);
@@ -366,6 +373,16 @@ function App() {
     [resetView, draw, images, preloadAdjacent]
   );
 
+  const addToRecentFolders = useCallback((folderPath: string) => {
+    const name = folderPath.replace(/\\/g, "/").split("/").filter(Boolean).pop() || folderPath;
+    setRecentFolders((prev) => {
+      const filtered = prev.filter((f) => f.path !== folderPath);
+      const updated = [{ name, path: folderPath }, ...filtered].slice(0, 10);
+      try { localStorage.setItem("recent-folders", JSON.stringify(updated)); } catch { /* ignore */ }
+      return updated;
+    });
+  }, []);
+
   const loadFolder = useCallback(
     async (folderPath: string, selectFile?: string) => {
       try {
@@ -397,6 +414,8 @@ function App() {
         const sorted = sortImagePaths(result.images, sortBy, sortOrder, metaMap);
         setImages(sorted);
 
+        if (sorted.length > 0) addToRecentFolders(folderPath);
+
         if (selectFile && sorted.includes(selectFile)) {
           const idx = sorted.indexOf(selectFile);
           setCurrentIndex(idx);
@@ -413,7 +432,7 @@ function App() {
         setError("error.listFailed");
       }
     },
-    [loadImage, sortBy, sortOrder]
+    [loadImage, sortBy, sortOrder, addToRecentFolders]
   );
 
   const openFile = useCallback(async () => {
@@ -473,12 +492,12 @@ function App() {
     }
   }, [currentFolder, loadFolder]);
 
-  // Auto-show sidebar when a folder is loaded
+  // Auto-show sidebar when a folder is loaded or recent folders exist
   useEffect(() => {
-    if (images.length > 0 || currentFolder) {
+    if (images.length > 0 || currentFolder || recentFolders.length > 0) {
       setSidebarVisible(true);
     }
-  }, [images, currentFolder]);
+  }, [images, currentFolder, recentFolders]);
 
   // Sync theme attribute and meta tag
   useEffect(() => {
@@ -830,6 +849,7 @@ function App() {
         onNavigateFolder={navigateToFolder}
         onNavigateUp={navigateUp}
         language={language}
+        recentFolders={recentFolders}
       />
       <div className="viewer-right">
         <div className="toolbar">

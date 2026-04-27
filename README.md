@@ -15,6 +15,7 @@ A native macOS image viewer built with Tauri 2 + React 19 + TypeScript. Minimal,
 - **Drag & drop** — Drag files directly from Finder into the window
 - **Theme** — Dark and light themes
 - **i18n** — English / Chinese language support
+- **Recent folders** — Quick access to recently opened folders, persisted across restarts
 - **File associations** — Opens jpg, jpeg, png, gif, webp, bmp, svg, avif, tiff, tif
 
 ## Keyboard Shortcuts
