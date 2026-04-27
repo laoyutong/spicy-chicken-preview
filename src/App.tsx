@@ -39,11 +39,71 @@ interface SubdirInfo {
   path: string;
 }
 
+interface ImageMeta {
+  path: string;
+  size: number;
+  extension: string;
+  modified: number;
+}
+
+type SortMode = "name" | "dimensions" | "aspect-ratio" | "modified";
+
+interface ImageMetaRecord {
+  size: number;
+  extension: string;
+  modified: number;
+  width?: number;
+  height?: number;
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function comparePaths(
+  a: string, b: string,
+  mode: SortMode, order: "asc" | "desc",
+  metaMap: Map<string, ImageMetaRecord>,
+): number {
+  const sign = order === "asc" ? 1 : -1;
+  const metaA = metaMap.get(a);
+  const metaB = metaMap.get(b);
+
+  switch (mode) {
+    case "name": {
+      const na = a.split(/[/\\]/).pop()?.toLowerCase() || a;
+      const nb = b.split(/[/\\]/).pop()?.toLowerCase() || b;
+      return na.localeCompare(nb) * sign;
+    }
+    case "dimensions": {
+      const areaA = (metaA?.width ?? 0) * (metaA?.height ?? 0);
+      const areaB = (metaB?.width ?? 0) * (metaB?.height ?? 0);
+      return (areaA - areaB) * sign;
+    }
+    case "aspect-ratio": {
+      const ra = metaA?.width && metaA?.height ? metaA.width / metaA.height : 0;
+      const rb = metaB?.width && metaB?.height ? metaB.width / metaB.height : 0;
+      return (ra - rb) * sign;
+    }
+    case "modified": {
+      const ma = metaA?.modified ?? 0;
+      const mb = metaB?.modified ?? 0;
+      return (ma - mb) * sign;
+    }
+    default:
+      return 0;
+  }
+}
+
+function sortImagePaths(
+  paths: string[],
+  mode: SortMode, order: "asc" | "desc",
+  metaMap: Map<string, ImageMetaRecord>,
+): string[] {
+  return [...paths].sort((a, b) => comparePaths(a, b, mode, order, metaMap));
 }
 
 function clampPan(
@@ -90,6 +150,14 @@ function App() {
   const [imageDimensions, setImageDimensions] = useState<{ w: number; h: number } | null>(null);
   const [fileSize, setFileSize] = useState<number | null>(null);
   const [fileFormat, setFileFormat] = useState<string | null>(null);
+
+  // Sorting
+  const [sortBy, setSortBy] = useState<SortMode>("name");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const imageMetaMapRef = useRef<Map<string, ImageMetaRecord>>(new Map());
+  const [metaVersion, setMetaVersion] = useState(0);
+  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
+  const sortDropdownRef = useRef<HTMLDivElement>(null);
 
   const zoomRef = useRef(zoom);
   const panXRef = useRef(panX);
@@ -304,22 +372,37 @@ function App() {
           parent: string | null;
           subdirs: SubdirInfo[];
           images: string[];
+          image_infos: ImageMeta[];
         } = await invoke("list_folder_contents", { folderPath });
         setCurrentFolder(folderPath);
-        setImages(result.images);
         setSubdirs(result.subdirs);
         imgW.current = 0;
         imgH.current = 0;
         sourceImg.current = null;
         imageCache.current.clear();
 
-        if (selectFile && result.images.includes(selectFile)) {
-          const idx = result.images.indexOf(selectFile);
+        // Populate metadata map
+        const metaMap = new Map<string, ImageMetaRecord>();
+        for (const info of result.image_infos) {
+          metaMap.set(info.path, {
+            size: info.size,
+            extension: info.extension,
+            modified: info.modified,
+          });
+        }
+        imageMetaMapRef.current = metaMap;
+
+        // Sort images by current sort criteria
+        const sorted = sortImagePaths(result.images, sortBy, sortOrder, metaMap);
+        setImages(sorted);
+
+        if (selectFile && sorted.includes(selectFile)) {
+          const idx = sorted.indexOf(selectFile);
           setCurrentIndex(idx);
           await loadImage(selectFile, true);
-        } else if (result.images.length > 0) {
+        } else if (sorted.length > 0) {
           setCurrentIndex(0);
-          await loadImage(result.images[0], true);
+          await loadImage(sorted[0], true);
         } else {
           setCurrentIndex(0);
           setCurrentFile(null);
@@ -329,7 +412,7 @@ function App() {
         setError("error.listFailed");
       }
     },
-    [loadImage]
+    [loadImage, sortBy, sortOrder]
   );
 
   const openFile = useCallback(async () => {
@@ -411,6 +494,58 @@ function App() {
     document.documentElement.lang = language;
     try { localStorage.setItem("language", language); } catch { /* ignore */ }
   }, [language]);
+
+  // Re-sort images when sort criteria or metadata changes
+  useEffect(() => {
+    if (images.length === 0) return;
+    const currentPath = currentFile || images[currentIndex] || undefined;
+    const sorted = sortImagePaths(images, sortBy, sortOrder, imageMetaMapRef.current);
+    // Only update if order actually changed
+    const orderChanged = sorted.some((p, i) => p !== images[i]);
+    if (!orderChanged) return;
+    setImages(sorted);
+    if (currentPath) {
+      const newIdx = sorted.indexOf(currentPath);
+      if (newIdx >= 0) setCurrentIndex(newIdx);
+    }
+  }, [sortBy, sortOrder, metaVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch dimensions when sorting by dimensions or aspect-ratio
+  useEffect(() => {
+    if (sortBy !== "dimensions" && sortBy !== "aspect-ratio") return;
+    if (images.length === 0) return;
+
+    // Find paths that need dimensions
+    const missing = images.filter((p) => {
+      const meta = imageMetaMapRef.current.get(p);
+      return !meta || meta.width === undefined;
+    });
+
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+    invoke<{ path: string; width: number; height: number }[]>(
+      "get_images_dimensions",
+      { filePaths: missing },
+    )
+      .then((dims) => {
+        if (cancelled) return;
+        const map = imageMetaMapRef.current;
+        for (const d of dims) {
+          const existing = map.get(d.path);
+          if (existing) {
+            existing.width = d.width;
+            existing.height = d.height;
+          }
+        }
+        setMetaVersion((v) => v + 1);
+      })
+      .catch(() => {
+        // Silently fail - dimensions won't be available
+      });
+
+    return () => { cancelled = true; };
+  }, [sortBy, images.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Slideshow auto-advance
   useEffect(() => {
@@ -558,6 +693,18 @@ function App() {
     };
   }, [loadImage, loadOpenedFile]);
 
+  // Close sort dropdown on outside click
+  useEffect(() => {
+    if (!sortDropdownOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (sortDropdownRef.current && !sortDropdownRef.current.contains(e.target as Node)) {
+        setSortDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [sortDropdownOpen]);
+
   // ── Wheel: zoom / pan ─────────────────────────────────────────
 
   useEffect(() => {
@@ -656,8 +803,10 @@ function App() {
         <div className="toolbar-left">
           <button className="toolbar-btn" onClick={openFile} title={t("toolbar.openImage", language)}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-              <polyline points="9 22 9 12 15 12 15 22" />
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              <rect x="8" y="11" width="8" height="6" rx="1" />
+              <circle cx="10" cy="13.5" r="1" />
+              <polyline points="21 15 16 10 13 13" />
             </svg>
           </button>
           {(images.length > 0 || currentFolder) && (
@@ -674,6 +823,54 @@ function App() {
                 <rect x="5" y="17" width="3" height="1" fill="currentColor" />
               </svg>
             </button>
+          )}
+          {(images.length > 0 || currentFolder) && (
+            <div className="sort-controls" ref={sortDropdownRef}>
+              <button
+                className="sort-btn"
+                onClick={() => setSortDropdownOpen((o) => !o)}
+                title={translate(`sort.${sortBy}`, language)}
+              >
+                <span className="sort-label">{translate(`sort.${sortBy}`, language)}</span>
+                <svg className="sort-chevron" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+              {sortDropdownOpen && (
+                <div className="sort-dropdown">
+                  {(["name", "dimensions", "aspect-ratio", "modified"] as SortMode[]).map((mode) => (
+                    <button
+                      key={mode}
+                      className={`sort-dropdown-item${mode === sortBy ? " active" : ""}`}
+                      onClick={() => { setSortBy(mode); setSortDropdownOpen(false); }}
+                    >
+                      {translate(`sort.${mode}`, language)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button
+                className="sort-dir-btn"
+                onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
+                title={sortOrder === "asc" ? t("sort.ascending", language) : t("sort.descending", language)}
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" stroke="none">
+                  {sortOrder === "asc" ? (
+                    <>
+                      <rect x="0" y="9" width="3" height="3" rx="0.5" opacity="0.35" />
+                      <rect x="4.5" y="5" width="3" height="7" rx="0.5" opacity="0.65" />
+                      <rect x="9" y="0" width="3" height="12" rx="0.5" />
+                    </>
+                  ) : (
+                    <>
+                      <rect x="0" y="0" width="3" height="12" rx="0.5" />
+                      <rect x="4.5" y="2" width="3" height="10" rx="0.5" opacity="0.65" />
+                      <rect x="9" y="7" width="3" height="5" rx="0.5" opacity="0.35" />
+                    </>
+                  )}
+                </svg>
+              </button>
+            </div>
           )}
           {fileName && <span className="toolbar-filename">{fileName}</span>}
         </div>
@@ -693,29 +890,31 @@ function App() {
                 <polyline points="9 18 15 12 9 6" />
               </svg>
             </button>
-            <button
-              className="toolbar-btn"
-              onClick={toggleSlideshow}
-              title={slideshowActive ? t("slideshow.pause", language) : t("slideshow.play", language)}
-            >
-              {slideshowActive ? (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                  <rect x="6" y="4" width="4" height="16" rx="1" />
-                  <rect x="14" y="4" width="4" height="16" rx="1" />
-                </svg>
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                  <polygon points="6,3 20,12 6,21" />
-                </svg>
-              )}
-            </button>
-            <button
-              className="toolbar-btn interval-btn"
-              onClick={cycleSlideshowInterval}
-              title={t("slideshow.interval", language)}
-            >
-              <span className="interval-label">{slideshowInterval}s</span>
-            </button>
+            <div className="slideshow-controls">
+              <button
+                className="slideshow-play-btn"
+                onClick={toggleSlideshow}
+                title={slideshowActive ? t("slideshow.pause", language) : t("slideshow.play", language)}
+              >
+                {slideshowActive ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                    <rect x="6" y="4" width="4" height="16" rx="1" />
+                    <rect x="14" y="4" width="4" height="16" rx="1" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                    <polygon points="6,3 20,12 6,21" />
+                  </svg>
+                )}
+              </button>
+              <button
+                className="slideshow-interval-btn"
+                onClick={cycleSlideshowInterval}
+                title={t("slideshow.interval", language)}
+              >
+                <span className="interval-label">{slideshowInterval}s</span>
+              </button>
+            </div>
           </div>
         )}
 

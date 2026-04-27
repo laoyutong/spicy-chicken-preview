@@ -3,13 +3,14 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::process::Command;
 use std::sync::Mutex;
+use std::time::SystemTime;
 use tauri::Emitter;
 use tauri::Manager;
 
 static PENDING_FILE: Mutex<Option<String>> = Mutex::new(None);
 static THUMBNAIL_LOCK: Mutex<()> = Mutex::new(());
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 struct SubdirInfo {
     name: String,
     path: String,
@@ -19,6 +20,15 @@ struct SubdirInfo {
 struct FileInfo {
     size: u64,
     extension: String,
+    modified: u64,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct ImageMeta {
+    path: String,
+    size: u64,
+    extension: String,
+    modified: u64,
 }
 
 #[derive(serde::Serialize)]
@@ -26,6 +36,7 @@ struct FolderContents {
     parent: Option<String>,
     subdirs: Vec<SubdirInfo>,
     images: Vec<String>,
+    image_infos: Vec<ImageMeta>,
 }
 
 #[tauri::command]
@@ -84,6 +95,7 @@ fn list_folder_contents(folder_path: &str) -> Result<FolderContents, String> {
     ];
 
     let mut images: Vec<String> = Vec::new();
+    let mut image_infos: Vec<ImageMeta> = Vec::new();
     let mut subdirs: Vec<SubdirInfo> = Vec::new();
 
     let entries =
@@ -105,27 +117,56 @@ fn list_folder_contents(folder_path: &str) -> Result<FolderContents, String> {
         } else if entry_path.is_file() {
             if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
                 if valid_extensions.contains(&ext.to_lowercase().as_str()) {
-                    images.push(entry_path.to_string_lossy().to_string());
+                    let path_str = entry_path.to_string_lossy().to_string();
+                    let (file_size, file_modified) = std::fs::metadata(&entry_path)
+                        .map(|m| {
+                            let modified = m
+                                .modified()
+                                .ok()
+                                .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0);
+                            (m.len(), modified)
+                        })
+                        .unwrap_or((0, 0));
+                    image_infos.push(ImageMeta {
+                        path: path_str.clone(),
+                        size: file_size,
+                        extension: ext.to_uppercase(),
+                        modified: file_modified,
+                    });
+                    images.push(path_str);
                 }
             }
         }
     }
 
-    subdirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    images.sort_by(|a, b| {
-        let a_name = Path::new(a)
-            .file_name()
-            .map(|n| n.to_string_lossy().to_lowercase());
-        let b_name = Path::new(b)
-            .file_name()
-            .map(|n| n.to_string_lossy().to_lowercase());
+    // Sort by filename by default
+    let mut indexed: Vec<(usize, String, ImageMeta)> = images
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let info = image_infos[i].clone();
+            (i, p.clone(), info)
+        })
+        .collect();
+
+    indexed.sort_by(|(_, a, _), (_, b, _)| {
+        let a_name = Path::new(a).file_name().map(|n| n.to_string_lossy().to_lowercase());
+        let b_name = Path::new(b).file_name().map(|n| n.to_string_lossy().to_lowercase());
         a_name.cmp(&b_name)
     });
+
+    images = indexed.iter().map(|(_, p, _)| p.clone()).collect();
+    image_infos = indexed.iter().map(|(_, _, info)| info.clone()).collect();
+
+    subdirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     Ok(FolderContents {
         parent,
         subdirs,
         images,
+        image_infos,
     })
 }
 
@@ -142,7 +183,48 @@ fn get_file_info(file_path: &str) -> Result<FileInfo, String> {
     Ok(FileInfo {
         size: metadata.len(),
         extension,
+        modified: metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
     })
+}
+
+#[derive(serde::Serialize)]
+struct ImageDimensions {
+    path: String,
+    width: u32,
+    height: u32,
+}
+
+#[tauri::command]
+fn get_images_dimensions(file_paths: Vec<String>) -> Result<Vec<ImageDimensions>, String> {
+    let mut results = Vec::new();
+    for path_str in file_paths {
+        let path = Path::new(&path_str);
+        // Try reading image header with the image crate
+        if let Ok(reader) = image::ImageReader::open(path) {
+            if let Ok(reader) = reader.with_guessed_format() {
+                if let Ok(dimensions) = reader.into_dimensions() {
+                    results.push(ImageDimensions {
+                        path: path_str,
+                        width: dimensions.0,
+                        height: dimensions.1,
+                    });
+                    continue;
+                }
+            }
+        }
+        // Fallback: return 0x0 for images we can't read (e.g. SVG)
+        results.push(ImageDimensions {
+            path: path_str,
+            width: 0,
+            height: 0,
+        });
+    }
+    Ok(results)
 }
 
 #[tauri::command]
@@ -218,7 +300,8 @@ pub fn run() {
             list_folder_contents,
             get_file_info,
             get_pending_file,
-            get_thumbnail
+            get_thumbnail,
+            get_images_dimensions
         ])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
