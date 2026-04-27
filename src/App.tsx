@@ -170,6 +170,7 @@ function App() {
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const imageAreaRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fadeCanvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => { zoomRef.current = zoom; }, [zoom]);
   useEffect(() => { panXRef.current = panX; }, [panX]);
@@ -547,22 +548,54 @@ function App() {
     return () => { cancelled = true; };
   }, [sortBy, images.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Slideshow crossfade ─────────────────────────────────────────
+
+  const doCrossfade = useCallback(() => {
+    const main = canvasRef.current;
+    const fade = fadeCanvasRef.current;
+    if (!main || !fade) return;
+
+    // Snapshot current main canvas (old image) to fade canvas
+    fade.width = main.width;
+    fade.height = main.height;
+    fade.style.width = main.style.width;
+    fade.style.height = main.style.height;
+    const fadeCtx = fade.getContext("2d")!;
+    fadeCtx.clearRect(0, 0, fade.width, fade.height);
+    fadeCtx.drawImage(main, 0, 0);
+
+    // Show fade canvas instantly on top
+    fade.style.transition = "none";
+    fade.style.opacity = "1";
+
+    // Trigger fade-out on next frame
+    requestAnimationFrame(() => {
+      fade.style.transition = "opacity 0.4s ease";
+      fade.style.opacity = "0";
+    });
+  }, []);
+
+  const slideshowAdvance = useCallback(() => {
+    const imgs = imagesRef.current;
+    if (imgs.length === 0) return;
+    doCrossfade();
+    const newIndex = (currentIndexRef.current + 1) % imgs.length;
+    currentIndexRef.current = newIndex;
+    setCurrentIndex(newIndex);
+    imgW.current = 0;
+    imgH.current = 0;
+    sourceImg.current = null;
+    loadImage(imgs[newIndex], true);
+  }, [doCrossfade, loadImage]);
+
   // Slideshow auto-advance
   useEffect(() => {
     if (!slideshowActive || images.length === 0) return;
     const timer = setInterval(() => {
-      const imgs = imagesRef.current;
-      if (imgs.length === 0) return;
-      const newIndex = (currentIndexRef.current + 1) % imgs.length;
-      currentIndexRef.current = newIndex;
-      setCurrentIndex(newIndex);
-      imgW.current = 0;
-      imgH.current = 0;
-      sourceImg.current = null;
-      loadImage(imgs[newIndex], true);
+      slideshowAdvance();
     }, slideshowInterval * 1000);
     return () => clearInterval(timer);
-  }, [slideshowActive, slideshowInterval, images.length, loadImage]);
+  }, [slideshowActive, slideshowInterval, images.length, slideshowAdvance]);
 
   // Sync fullscreen state with Tauri native window
   useEffect(() => {
@@ -1008,7 +1041,10 @@ function App() {
             <p className="state-hint">{t("error.openAnother", language)}</p>
           </div>
         ) : imageUrl ? (
-          <canvas ref={canvasRef} className="preview-canvas" />
+          <div className="canvas-stack">
+            <canvas ref={canvasRef} className="preview-canvas" />
+            <canvas ref={fadeCanvasRef} className="fade-canvas" />
+          </div>
         ) : currentFolder ? (
           <div className="state-message">
             <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="state-icon">
