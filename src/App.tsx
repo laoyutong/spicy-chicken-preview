@@ -165,6 +165,7 @@ function App() {
   const [metaVersion, setMetaVersion] = useState(0);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
   const sortDropdownRef = useRef<HTMLDivElement>(null);
+  const breadcrumbRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const zoomRef = useRef(zoom);
@@ -987,6 +988,30 @@ function App() {
     ? currentFile.split(/[/\\]/).pop() || currentFile
     : "";
 
+  // ── Breadcrumb segments ──────────────────────────────────────────
+
+  const breadcrumbs = (() => {
+    if (!currentFolder) return [];
+    const normalized = currentFolder.replace(/\\/g, "/");
+    if (normalized === "/") return [{ name: "/", path: "/" }];
+    const parts = normalized.split("/").filter(Boolean);
+    const segments: { name: string; path: string }[] = [{ name: "/", path: "/" }];
+    let cumulative = "";
+    for (const part of parts) {
+      cumulative += "/" + part;
+      segments.push({ name: part, path: cumulative });
+    }
+    return segments;
+  })();
+
+  // Auto-scroll breadcrumb to end when folder changes
+  useEffect(() => {
+    const el = breadcrumbRef.current;
+    if (el) {
+      el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+    }
+  }, [currentFolder]);
+
   const zoomPercent = Math.round(zoom * 100);
   const areaClass = "image-area" + (dragging ? " dragging" : imageUrl ? " grab" : "");
 
@@ -1200,6 +1225,35 @@ function App() {
           )}
         </div>
       </div>
+
+      {breadcrumbs.length > 0 && (
+        <div className="breadcrumb-bar">
+          <div className="breadcrumb-list" ref={breadcrumbRef}>
+            {breadcrumbs.map((seg, i) => (
+              <span key={seg.path} className="breadcrumb-segment">
+                {i > 0 && (
+                  <svg className="breadcrumb-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 6 15 12 9 18" />
+                  </svg>
+                )}
+                {i < breadcrumbs.length - 1 ? (
+                  <button
+                    className="breadcrumb-item"
+                    onClick={() => navigateToFolder(seg.path)}
+                    title={seg.path}
+                  >
+                    {seg.name}
+                  </button>
+                ) : (
+                  <span className="breadcrumb-item breadcrumb-item--current" title={seg.path}>
+                    {seg.name}
+                  </span>
+                )}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div
         ref={imageAreaRef}

@@ -144,6 +144,87 @@ html, body, #root {
   justify-content: flex-end;
 }
 
+/* ── Breadcrumb Bar ─────────────────────────────────────────────── */
+
+.breadcrumb-bar {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 14px;
+  background-color: var(--bg-toolbar);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.breadcrumb-list {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to right, black calc(100% - 32px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 32px), transparent 100%);
+}
+
+.breadcrumb-list::-webkit-scrollbar {
+  display: none;
+}
+
+.breadcrumb-segment {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.breadcrumb-chevron {
+  flex-shrink: 0;
+  margin: 0 4px;
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
+.breadcrumb-item {
+  display: block;
+  height: 22px;
+  line-height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.breadcrumb-item:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.breadcrumb-item--current {
+  color: var(--text-primary);
+  cursor: default;
+  font-weight: 500;
+}
+
+.breadcrumb-item--current:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+
 /* ── Toolbar Buttons ───────────────────────────────────────────── */
 
 .toolbar-btn {
@@ -911,6 +992,10 @@ html, body, #root {
 /* ── Fullscreen ──────────────────────────────────────────────────── */
 
 .viewer.fullscreen .toolbar {
+  display: none;
+}
+
+.viewer.fullscreen .breadcrumb-bar {
   display: none;
 }
 
