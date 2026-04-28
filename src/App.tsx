@@ -165,6 +165,7 @@ function App() {
   const [metaVersion, setMetaVersion] = useState(0);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
   const sortDropdownRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const zoomRef = useRef(zoom);
   const panXRef = useRef(panX);
@@ -720,6 +721,101 @@ function App() {
     setSlideshowActive((a) => !a);
   }, []);
 
+  // ── Context Menu ─────────────────────────────────────────────────
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (!currentFile) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setContextMenu({ x: e.clientX, y: e.clientY });
+    },
+    [currentFile],
+  );
+
+  const copyImage = useCallback(async () => {
+    if (!currentFile) return;
+    setContextMenu(null);
+    try {
+      await invoke("copy_image_to_clipboard", { filePath: currentFile });
+    } catch (err) {
+      console.error("Failed to copy image:", err);
+    }
+  }, [currentFile]);
+
+  const setDesktopBackground = useCallback(async () => {
+    if (!currentFile) return;
+    setContextMenu(null);
+    try {
+      await invoke("set_desktop_background", { filePath: currentFile });
+    } catch (err) {
+      console.error("Failed to set desktop background:", err);
+    }
+  }, [currentFile]);
+
+  const revealInFinder = useCallback(async () => {
+    if (!currentFile) return;
+    setContextMenu(null);
+    try {
+      await invoke("reveal_in_finder", { filePath: currentFile });
+    } catch (err) {
+      console.error("Failed to reveal in Finder:", err);
+    }
+  }, [currentFile]);
+
+  const handleMoveToTrash = useCallback(async () => {
+    if (!currentFile) return;
+    const imgs = imagesRef.current;
+    if (imgs.length === 0) return;
+    setContextMenu(null);
+    try {
+      await invoke("move_to_trash", { filePath: currentFile });
+    } catch (err) {
+      console.error("Failed to move to trash:", err);
+      return;
+    }
+    // Remove from metadata map and image cache
+    imageMetaMapRef.current.delete(currentFile);
+    imageCache.current.delete(currentFile);
+
+    const idx = imgs.indexOf(currentFile);
+    const newImages = imgs.filter((_, i) => i !== idx);
+
+    if (newImages.length === 0) {
+      setImages([]);
+      setCurrentIndex(0);
+      setImageUrl(null);
+      setCurrentFile(null);
+      sourceImg.current = null;
+      return;
+    }
+
+    const newIdx = idx >= newImages.length
+      ? Math.max(0, newImages.length - 1)
+      : idx;
+    setImages(newImages);
+    setCurrentIndex(newIdx);
+    imgW.current = 0;
+    imgH.current = 0;
+    sourceImg.current = null;
+    loadImage(newImages[newIdx], true);
+  }, [currentFile, loadImage]);
+
+  // Close context menu on outside interaction
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const closeOnScroll = () => setContextMenu(null);
+    document.addEventListener("click", close);
+    document.addEventListener("contextmenu", close);
+    window.addEventListener("scroll", closeOnScroll, { capture: true });
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("contextmenu", close);
+      window.removeEventListener("scroll", closeOnScroll, { capture: true });
+    };
+  }, [contextMenu]);
+
   // Keyboard
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -767,11 +863,15 @@ function App() {
         // F: toggle fullscreen
         e.preventDefault();
         toggleFullscreen();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        // Delete/Backspace: move to trash
+        e.preventDefault();
+        handleMoveToTrash();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, resetView, zoomToward, toggleFullscreen, imageUrl]);
+  }, [navigate, resetView, zoomToward, toggleFullscreen, imageUrl, handleMoveToTrash]);
 
   const loadOpenedFile = useCallback(
     async (filePath: string) => {
@@ -1105,6 +1205,7 @@ function App() {
         ref={imageAreaRef}
         className={areaClass}
         onDoubleClick={handleDoubleClick}
+        onContextMenu={handleContextMenu}
         onPointerDown={panHandlers.handlePointerDown}
         onPointerMove={panHandlers.handlePointerMove}
         onPointerUp={panHandlers.handlePointerUp}
@@ -1177,6 +1278,31 @@ function App() {
           onToggleSlideshow={toggleSlideshow}
           onCycleInterval={cycleSlideshowInterval}
         />
+      )}
+
+      {contextMenu && currentFile && (
+        <div
+          className="context-menu"
+          style={{
+            left: Math.min(contextMenu.x, window.innerWidth - 220),
+            top: Math.min(contextMenu.y, window.innerHeight - 180),
+          }}
+        >
+          <button className="context-menu-item" onClick={copyImage}>
+            {t("context.copyImage", language)}
+          </button>
+          <button className="context-menu-item" onClick={setDesktopBackground}>
+            {t("context.setDesktopBackground", language)}
+          </button>
+          <div className="context-menu-divider" />
+          <button className="context-menu-item" onClick={revealInFinder}>
+            {t("context.revealInFinder", language)}
+          </button>
+          <div className="context-menu-divider" />
+          <button className="context-menu-item context-menu-item--danger" onClick={handleMoveToTrash}>
+            {t("context.moveToTrash", language)}
+          </button>
+        </div>
       )}
       </div>
     </div>

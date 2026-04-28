@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
@@ -277,6 +278,63 @@ fn get_thumbnail(app: tauri::AppHandle, file_path: &str, max_size: u32) -> Resul
     Ok(cache_file.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn copy_image_to_clipboard(file_path: &str) -> Result<(), String> {
+    let img = image::ImageReader::open(file_path)
+        .map_err(|e| format!("Failed to open image: {}", e))?
+        .decode()
+        .map_err(|e| format!("Failed to decode image: {}", e))?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    let data = rgba.into_raw();
+
+    let mut clipboard = arboard::Clipboard::new()
+        .map_err(|e| format!("Failed to access clipboard: {}", e))?;
+    clipboard
+        .set_image(arboard::ImageData {
+            width: width as usize,
+            height: height as usize,
+            bytes: Cow::Owned(data),
+        })
+        .map_err(|e| format!("Failed to set clipboard image: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn reveal_in_finder(file_path: &str) -> Result<(), String> {
+    Command::new("open")
+        .arg("-R")
+        .arg(file_path)
+        .output()
+        .map_err(|e| format!("Failed to reveal in Finder: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn move_to_trash(file_path: &str) -> Result<(), String> {
+    trash::delete(file_path).map_err(|e| format!("Failed to move to trash: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_desktop_background(file_path: &str) -> Result<(), String> {
+    let escaped = file_path.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!(
+        "tell application \"Finder\" to set desktop picture to POSIX file \"{}\"",
+        escaped
+    );
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|e| format!("Failed to run osascript: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to set desktop background: {}", stderr));
+    }
+    Ok(())
+}
+
 fn url_to_file_path(url_str: &str) -> Option<String> {
     // Handle file:// URLs (macOS)
     if let Some(path) = url_str.strip_prefix("file://") {
@@ -301,7 +359,11 @@ pub fn run() {
             get_file_info,
             get_pending_file,
             get_thumbnail,
-            get_images_dimensions
+            get_images_dimensions,
+            copy_image_to_clipboard,
+            reveal_in_finder,
+            move_to_trash,
+            set_desktop_background
         ])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
