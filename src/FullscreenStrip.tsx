@@ -32,9 +32,13 @@ export default function FullscreenStrip({
     if (!strip) return;
     const activeItem = strip.children[currentIndex] as HTMLElement | undefined;
     if (activeItem) {
-      activeItem.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      activeItem.scrollIntoView({
+        behavior: slideshowActive ? "instant" : "smooth",
+        inline: "center",
+        block: "nearest",
+      });
     }
-  }, [currentIndex]);
+  }, [currentIndex, slideshowActive]);
 
   // Show on mount, start hide timer
   useEffect(() => {
@@ -44,9 +48,13 @@ export default function FullscreenStrip({
     };
   }, [resetHideTimer]);
 
-  // Detect mouse near bottom of screen to show the strip
+  // Detect mouse near bottom of screen to show the strip (throttled)
   useEffect(() => {
+    let lastCheck = 0;
     const handleMouseMove = (e: MouseEvent) => {
+      const now = Date.now();
+      if (now - lastCheck < 100) return;
+      lastCheck = now;
       const threshold = 100; // px from bottom
       if (e.clientY > window.innerHeight - threshold) {
         resetHideTimer();

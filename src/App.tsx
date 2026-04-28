@@ -178,6 +178,7 @@ function App() {
   const imageAreaRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fadeCanvasRef = useRef<HTMLCanvasElement>(null);
+  const fullscreenTransitioningRef = useRef(false);
 
   useEffect(() => { zoomRef.current = zoom; }, [zoom]);
   useEffect(() => { panXRef.current = panX; }, [panX]);
@@ -205,6 +206,12 @@ function App() {
     const dpr = window.devicePixelRatio || 1;
     const bw = Math.round(cw * dpr);
     const bh = Math.round(ch * dpr);
+    if (fullscreenTransitioningRef.current) {
+      // During fullscreen animation, only CSS-scale — avoid buffer reallocation jank
+      canvas.style.width = cw + "px";
+      canvas.style.height = ch + "px";
+      return;
+    }
     if (canvas.width !== bw || canvas.height !== bh) {
       canvas.width = bw;
       canvas.height = bh;
@@ -253,11 +260,21 @@ function App() {
   // Redraw whenever zoom / pan / image / container changes
   useEffect(() => { draw(); }, [zoom, panX, panY, imageUrl, draw]);
 
-  // Redraw on resize (container size changes)
+  // Redraw on resize (container size changes) — rAF-batched
   useEffect(() => {
-    const onResize = () => draw();
+    let rafId = 0;
+    const onResize = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        draw();
+      });
+    };
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, [draw]);
 
   // ── Zoom helper ────────────────────────────────────────────────
@@ -408,6 +425,22 @@ function App() {
             modified: info.modified,
           });
         }
+
+        // Fetch dimensions upfront if sorting by dimensions or aspect-ratio
+        if ((sortBy === "dimensions" || sortBy === "aspect-ratio") && result.images.length > 0) {
+          try {
+            const dims: { path: string; width: number; height: number }[] =
+              await invoke("get_images_dimensions", { filePaths: result.images });
+            for (const d of dims) {
+              const existing = metaMap.get(d.path);
+              if (existing) {
+                existing.width = d.width;
+                existing.height = d.height;
+              }
+            }
+          } catch { /* ignore — dimensions won't be available */ }
+        }
+
         imageMetaMapRef.current = metaMap;
 
         // Sort images by current sort criteria
@@ -624,11 +657,25 @@ function App() {
         // Check initial fullscreen state on load
         const initial = await win.isFullscreen();
         setFullscreen(initial);
+        let lastFullscreen = initial;
 
         // Listen for state changes (e.g., via native green button)
+        let resizeTimer: ReturnType<typeof setTimeout> | null = null;
         const unlisten = await win.listen("tauri://resize", async () => {
-          const fs = await win.isFullscreen();
-          setFullscreen(fs);
+          if (resizeTimer) return;
+          resizeTimer = setTimeout(async () => {
+            resizeTimer = null;
+            const fs = await win.isFullscreen();
+            if (fs !== lastFullscreen) {
+              lastFullscreen = fs;
+              fullscreenTransitioningRef.current = true;
+              setFullscreen(fs);
+              setTimeout(() => {
+                fullscreenTransitioningRef.current = false;
+                draw();
+              }, 600);
+            }
+          }, 200);
         });
         return unlisten;
       } catch (e) {
@@ -645,8 +692,15 @@ function App() {
     try {
       const win = getCurrentWebviewWindow();
       const current = await win.isFullscreen();
+      // Suspend canvas buffer resizing during the native fullscreen animation
+      fullscreenTransitioningRef.current = true;
       await win.setFullscreen(!current);
       setFullscreen(!current);
+      // macOS fullscreen animation takes ~500ms; redraw after it settles
+      setTimeout(() => {
+        fullscreenTransitioningRef.current = false;
+        draw();
+      }, 600);
     } catch (e) {
       console.error("Toggle fullscreen error:", e);
     }
@@ -838,19 +892,21 @@ function App() {
 
   return (
     <div className={`viewer${fullscreen ? " fullscreen" : ""}`}>
-      <Sidebar
-        images={images}
-        currentIndex={currentIndex}
-        onSelect={(index) => { setSlideshowActive(false); jumpTo(index); }}
-        visible={sidebarVisible}
-        currentFolder={currentFolder}
-        subdirs={subdirs}
-        parentPath={currentFolder ? getParentDir(currentFolder) : null}
-        onNavigateFolder={navigateToFolder}
-        onNavigateUp={navigateUp}
-        language={language}
-        recentFolders={recentFolders}
-      />
+      {!fullscreen && (
+        <Sidebar
+          images={images}
+          currentIndex={currentIndex}
+          onSelect={(index) => { setSlideshowActive(false); jumpTo(index); }}
+          visible={sidebarVisible}
+          currentFolder={currentFolder}
+          subdirs={subdirs}
+          parentPath={currentFolder ? getParentDir(currentFolder) : null}
+          onNavigateFolder={navigateToFolder}
+          onNavigateUp={navigateUp}
+          language={language}
+          recentFolders={recentFolders}
+        />
+      )}
       <div className="viewer-right">
         <div className="toolbar">
         <div className="toolbar-left">
