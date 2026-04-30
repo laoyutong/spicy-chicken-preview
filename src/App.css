@@ -104,7 +104,6 @@ html, body, #root {
   flex-direction: column;
   flex: 1;
   min-width: 0;
-  overflow: hidden;
 }
 
 /* ── Toolbar ───────────────────────────────────────────────────── */
@@ -497,6 +496,102 @@ html, body, #root {
   font-weight: 400;
   color: inherit;
   letter-spacing: 0.3px;
+}
+
+/* ── Toolbar Overflow ─────────────────────────────────────────────── */
+
+.toolbar-more-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.toolbar-more-btn.visible {
+  display: flex;
+}
+
+.toolbar-more-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+  box-shadow: var(--accent-glow);
+}
+
+.toolbar-more-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 160px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 4px;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  flex-direction: column;
+  gap: 2px;
+  animation: sort-dropdown-enter 0.12s ease-out;
+}
+
+.toolbar-more-btn:hover .toolbar-more-menu {
+  display: flex;
+}
+
+.toolbar-more-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  transition: background 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+
+.toolbar-more-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.toolbar-more-item.active {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.toolbar-more-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 4px 10px 2px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.3px;
+}
+
+.toolbar-more-separator {
+  height: 1px;
+  margin: 2px 8px;
+  background: var(--border-subtle);
+}
+
+[data-toolbar-item].collapsed {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* ── Image Area ────────────────────────────────────────────────── */
