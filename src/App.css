@@ -680,19 +680,19 @@ html, body, #root {
 
 /* ── Fullscreen ──────────────────────────────────────────────────── */
 
-.viewer.fullscreen .toolbar {
+.viewer.immersive .toolbar {
   display: none;
 }
 
-.viewer.fullscreen .breadcrumb-bar {
+.viewer.immersive .breadcrumb-bar {
   display: none;
 }
 
-.viewer.fullscreen .image-area {
+.viewer.immersive .image-area {
   background-color: #000;
 }
 
-.viewer.fullscreen .image-area::before {
+.viewer.immersive .image-area::before {
   background: none;
 }
 
@@ -883,7 +883,7 @@ html, body, #root {
   background: var(--bg-hover);
 }
 
-.viewer.fullscreen .status-bar {
+.viewer.immersive .status-bar {
   display: none;
 }
 

@@ -141,7 +141,8 @@ function App() {
   });
   const [theme, setTheme] = useState<"dark" | "light">(loadTheme);
   const [language, setLanguage] = useState<Language>(loadLanguage);
-  const [fullscreen, setFullscreen] = useState(false);
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
+  const [isImmersive, setIsImmersive] = useState(false);
   const [slideshowActive, setSlideshowActive] = useState(false);
   const [slideshowInterval, setSlideshowInterval] = useState(3);
 
@@ -659,7 +660,7 @@ function App() {
       try {
         // Check initial fullscreen state on load
         const initial = await win.isFullscreen();
-        setFullscreen(initial);
+        setIsNativeFullscreen(initial);
         let lastFullscreen = initial;
 
         // Listen for state changes (e.g., via native green button)
@@ -672,7 +673,7 @@ function App() {
             if (fs !== lastFullscreen) {
               lastFullscreen = fs;
               fullscreenTransitioningRef.current = true;
-              setFullscreen(fs);
+              setIsNativeFullscreen(fs);
               setTimeout(() => {
                 fullscreenTransitioningRef.current = false;
                 draw();
@@ -691,15 +692,13 @@ function App() {
     };
   }, []);
 
-  const toggleFullscreen = useCallback(async () => {
+  const toggleNativeFullscreen = useCallback(async () => {
     try {
       const win = getCurrentWebviewWindow();
       const current = await win.isFullscreen();
-      // Suspend canvas buffer resizing during the native fullscreen animation
       fullscreenTransitioningRef.current = true;
       await win.setFullscreen(!current);
-      setFullscreen(!current);
-      // macOS fullscreen animation takes ~500ms; redraw after it settles
+      setIsNativeFullscreen(!current);
       setTimeout(() => {
         fullscreenTransitioningRef.current = false;
         draw();
@@ -708,6 +707,8 @@ function App() {
       console.error("Toggle fullscreen error:", e);
     }
   }, []);
+
+  const toggleImmersive = useCallback(() => setIsImmersive((v) => !v), []);
 
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
@@ -861,10 +862,15 @@ function App() {
         // Cmd/Ctrl + B : toggle sidebar
         e.preventDefault();
         setSidebarVisible(v => !v);
+      } else if (e.key === "Escape") {
+        if (isImmersive) {
+          e.preventDefault();
+          setIsImmersive(false);
+        }
       } else if (e.key === "f" || e.key === "F") {
-        // F: toggle fullscreen
+        // F: toggle native window fullscreen
         e.preventDefault();
-        toggleFullscreen();
+        toggleNativeFullscreen();
       } else if (e.key === "Delete" || e.key === "Backspace") {
         // Delete/Backspace: move to trash
         e.preventDefault();
@@ -873,7 +879,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, resetView, zoomToward, toggleFullscreen, imageUrl, handleMoveToTrash]);
+  }, [navigate, resetView, zoomToward, toggleNativeFullscreen, isImmersive, imageUrl, handleMoveToTrash]);
 
   const loadOpenedFile = useCallback(
     async (filePath: string) => {
@@ -983,7 +989,7 @@ function App() {
     },
   }).current;
 
-  const handleDoubleClick = () => toggleFullscreen();
+  const handleDoubleClick = () => toggleImmersive();
 
   const fileName = currentFile
     ? currentFile.split(/[/\\]/).pop() || currentFile
@@ -1259,8 +1265,8 @@ function App() {
     items.push({
       id: "fullscreen", section: "right", priority: 5, condition: true,
       renderToolbar: () => (
-        <button className="toolbar-btn" onClick={toggleFullscreen} title={fullscreen ? t("toolbar.exitFullscreen", language) : t("toolbar.fullscreen", language)}>
-          {fullscreen ? (
+        <button className="toolbar-btn" onClick={toggleImmersive} title={isImmersive ? t("toolbar.exitFullscreen", language) : t("toolbar.fullscreen", language)}>
+          {isImmersive ? (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
               <line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" />
@@ -1274,8 +1280,8 @@ function App() {
         </button>
       ),
       renderMenu: () => (
-        <button className="toolbar-more-item" onClick={toggleFullscreen}>
-          {fullscreen ? t("toolbar.exitFullscreen", language) : t("toolbar.fullscreen", language)}
+        <button className="toolbar-more-item" onClick={toggleImmersive}>
+          {isImmersive ? t("toolbar.exitFullscreen", language) : t("toolbar.fullscreen", language)}
         </button>
       ),
     });
@@ -1332,19 +1338,19 @@ function App() {
     fileName,
     sortBy, sortOrder, sortDropdownOpen,
     theme,
-    fullscreen,
+    isImmersive, isNativeFullscreen,
     imageUrl, zoomPercent,
     slideshowActive, slideshowInterval,
     currentIndex,
     openFile, navigate, toggleSlideshow, cycleSlideshowInterval,
-    toggleFullscreen, toggleTheme, resetView,
+    toggleImmersive, toggleNativeFullscreen, toggleTheme, resetView,
   ]);
 
   const areaClass = "image-area" + (dragging ? " dragging" : imageUrl ? " grab" : "");
 
   return (
-    <div className={`viewer${fullscreen ? " fullscreen" : ""}`}>
-      {!fullscreen && (
+    <div className={`viewer${isNativeFullscreen ? " fullscreen" : ""}${isImmersive ? " immersive" : ""}`}>
+      {!isImmersive && (
         <Sidebar
           images={images}
           currentIndex={currentIndex}
@@ -1458,7 +1464,7 @@ function App() {
         </div>
       )}
 
-      {fullscreen && images.length > 0 && (
+      {isImmersive && images.length > 0 && (
         <FullscreenStrip
           images={images}
           currentIndex={currentIndex}
