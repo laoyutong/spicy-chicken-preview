@@ -8,6 +8,7 @@ import Sidebar from "./Sidebar";
 import FullscreenStrip from "./FullscreenStrip";
 import { loadLanguage, t, translate, type Language } from "./i18n";
 import { Toolbar, type ToolbarItemDef } from "./Toolbar";
+import { LRUImageCache } from "./lruImageCache";
 import "./App.css";
 import "./Toolbar.css";
 
@@ -146,8 +147,8 @@ function App() {
   const [slideshowActive, setSlideshowActive] = useState(false);
   const [slideshowInterval, setSlideshowInterval] = useState(3);
 
-  // Image preload cache
-  const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
+  // Image preload cache with LRU eviction (capped at ~12 images / ~300MB)
+  const imageCache = useRef<LRUImageCache>(new LRUImageCache());
 
   // Zoom & pan
   const [zoom, setZoom] = useState(1);
@@ -324,17 +325,37 @@ function App() {
   // Preload adjacent images into cache for instant navigation
   const preloadAdjacent = useCallback(
     (index: number) => {
-      const targets = [index - 1, index + 1];
-      for (const i of targets) {
+      const preloadOne = (i: number) => {
         if (i >= 0 && i < images.length) {
           const path = images[i];
           if (!imageCache.current.has(path)) {
             const img = new Image();
+            img.decoding = "async";
             img.src = convertFileSrc(path);
             imageCache.current.set(path, img);
           }
         }
-      }
+      };
+
+      // High priority: immediate neighbours (±1, ±2)
+      preloadOne(index - 1);
+      preloadOne(index + 1);
+      preloadOne(index - 2);
+      preloadOne(index + 2);
+
+      // Lower priority: further neighbours via idle callback
+      const scheduleIdle = (i: number) => {
+        const doPreload = () => preloadOne(i);
+        if (typeof requestIdleCallback !== "undefined") {
+          requestIdleCallback(doPreload, { timeout: 2000 });
+        } else {
+          setTimeout(doPreload, 100);
+        }
+      };
+      scheduleIdle(index - 3);
+      scheduleIdle(index + 3);
+      scheduleIdle(index - 4);
+      scheduleIdle(index + 4);
     },
     [images],
   );
@@ -350,6 +371,12 @@ function App() {
           resetView();
         }
 
+        // Fetch file metadata in parallel with image loading
+        const metadataPromise = invoke<{ size: number; extension: string }>(
+          "get_file_info", { filePath },
+        ).then((info) => { setFileSize(info.size); setFileFormat(info.extension); })
+          .catch(() => { setFileSize(null); setFileFormat(null); });
+
         // Check cache first for instant display
         const cached = imageCache.current.get(filePath);
         if (cached && cached.complete && cached.naturalWidth > 0) {
@@ -358,35 +385,40 @@ function App() {
           imgH.current = cached.naturalHeight;
           setImageDimensions({ w: cached.naturalWidth, h: cached.naturalHeight });
           draw();
-          invoke<{ size: number; extension: string }>("get_file_info", { filePath })
-            .then((info) => { setFileSize(info.size); setFileFormat(info.extension); })
-            .catch(() => { setFileSize(null); setFileFormat(null); });
+          await metadataPromise;
           return;
         }
 
-        // Load new image
+        // Load new image with async decoding to keep the main thread responsive
         const img = new Image();
-        img.onload = () => {
-          sourceImg.current = img;
-          imgW.current = img.naturalWidth;
-          imgH.current = img.naturalHeight;
-          setImageDimensions({ w: img.naturalWidth, h: img.naturalHeight });
-          imageCache.current.set(filePath, img);
-          draw();
-          // Fetch file metadata for status bar
-          invoke<{ size: number; extension: string }>("get_file_info", { filePath })
-            .then((info) => { setFileSize(info.size); setFileFormat(info.extension); })
-            .catch(() => { setFileSize(null); setFileFormat(null); });
-          // Preload neighbours after current image loads
-          const idx = images.indexOf(filePath);
-          if (idx !== -1) preloadAdjacent(idx);
-        };
-        img.onerror = () => {
-          setError("error.loadFailed");
-          sourceImg.current = null;
-        };
+        img.decoding = "async";
         img.src = url;
         sourceImg.current = null;
+
+        try {
+          await img.decode();
+        } catch {
+          // decode() rejects when the image is broken; onerror path handles it
+          if (img.naturalWidth === 0) {
+            setError("error.loadFailed");
+            sourceImg.current = null;
+            return;
+          }
+          // If decode() rejected but image is valid (edge case), fall through
+        }
+
+        sourceImg.current = img;
+        imgW.current = img.naturalWidth;
+        imgH.current = img.naturalHeight;
+        setImageDimensions({ w: img.naturalWidth, h: img.naturalHeight });
+        imageCache.current.set(filePath, img);
+        draw();
+
+        await metadataPromise;
+
+        // Preload neighbours after current image loads
+        const idx = images.indexOf(filePath);
+        if (idx !== -1) preloadAdjacent(idx);
       } catch {
         setError("error.loadFailed");
       }

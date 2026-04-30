@@ -3,13 +3,17 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
 use std::time::SystemTime;
 use tauri::Emitter;
 use tauri::Manager;
 
 static PENDING_FILE: Mutex<Option<String>> = Mutex::new(None);
-static THUMBNAIL_LOCK: Mutex<()> = Mutex::new(());
+
+// Allow up to N concurrent thumbnail generations via sips
+const MAX_THUMBNAIL_CONCURRENCY: u32 = 3;
+static THUMBNAIL_COUNT: Mutex<u32> = Mutex::new(0);
+static THUMBNAIL_CV: Condvar = Condvar::new();
 
 #[derive(serde::Serialize, Clone)]
 struct SubdirInfo {
@@ -234,10 +238,33 @@ fn get_pending_file() -> Option<String> {
     pending.take()
 }
 
+// RAII guard that releases a thumbnail concurrency slot on drop
+struct ThumbnailSlot;
+
+impl ThumbnailSlot {
+    fn acquire() -> Self {
+        let mut count = THUMBNAIL_COUNT.lock().unwrap();
+        while *count >= MAX_THUMBNAIL_CONCURRENCY {
+            count = THUMBNAIL_CV.wait(count).unwrap();
+        }
+        *count += 1;
+        ThumbnailSlot
+    }
+}
+
+impl Drop for ThumbnailSlot {
+    fn drop(&mut self) {
+        let mut count = THUMBNAIL_COUNT.lock().unwrap();
+        *count -= 1;
+        THUMBNAIL_CV.notify_one();
+    }
+}
+
 #[tauri::command]
 fn get_thumbnail(app: tauri::AppHandle, file_path: &str, max_size: u32) -> Result<String, String> {
-    // Serialize thumbnail generation — only one at a time to limit memory
-    let _guard = THUMBNAIL_LOCK.lock().unwrap();
+    // Acquire a concurrency slot (up to MAX_THUMBNAIL_CONCURRENCY simultaneous sips),
+    // then release it automatically when this function returns.
+    let _slot = ThumbnailSlot::acquire();
 
     let cache_dir = app
         .path()
