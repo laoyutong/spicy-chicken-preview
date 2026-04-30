@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -7,7 +7,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import Sidebar from "./Sidebar";
 import FullscreenStrip from "./FullscreenStrip";
 import { loadLanguage, t, translate, type Language } from "./i18n";
+import { Toolbar, type ToolbarItemDef } from "./Toolbar";
 import "./App.css";
+import "./Toolbar.css";
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 10;
@@ -121,104 +123,6 @@ function clampPan(
     y: Math.max(-maxY, Math.min(maxY, py)),
   };
 }
-
-function useToolbarOverflow(deps: React.DependencyList): [
-  React.RefObject<HTMLDivElement | null>,
-  Set<number>,
-] {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [overflowIndices, setOverflowIndices] = useState<Set<number>>(new Set());
-  const prevKeyRef = useRef<string>('');
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-
-    const MORE_BTN_WIDTH = 34;
-
-    const measure = () => {
-      const allItems = Array.from(el.querySelectorAll('[data-toolbar-item]')) as HTMLElement[];
-
-      // Temporarily reset all items for accurate measurement
-      allItems.forEach(item => {
-        item.style.position = '';
-        item.style.visibility = '';
-        item.style.pointerEvents = '';
-      });
-      void el.offsetHeight; // force layout
-
-      const visibleItems = allItems.filter(item => item.offsetWidth > 0);
-      if (visibleItems.length === 0) {
-        if (prevKeyRef.current !== '') {
-          prevKeyRef.current = '';
-          setOverflowIndices(new Set());
-        }
-        return;
-      }
-
-      const containerWidth = el.clientWidth;
-      const widths = visibleItems.map(item => item.offsetWidth);
-      const totalWidth = widths.reduce((sum, w, i) => sum + w + (i < widths.length - 1 ? 4 : 0), 0);
-
-      if (totalWidth <= containerWidth) {
-        allItems.forEach(item => {
-          item.style.position = '';
-          item.style.visibility = '';
-          item.style.pointerEvents = '';
-        });
-        if (prevKeyRef.current !== '') {
-          prevKeyRef.current = '';
-          setOverflowIndices(new Set());
-        }
-        return;
-      }
-
-      // Calculate which items overflow
-      let used = MORE_BTN_WIDTH;
-      const overflow = new Set<number>();
-      let foundOverflow = false;
-      for (let i = 0; i < visibleItems.length; i++) {
-        const w = widths[i] + 4;
-        if (!foundOverflow && used + w <= containerWidth) {
-          used += w;
-        } else {
-          foundOverflow = true;
-          overflow.add(parseInt(visibleItems[i].getAttribute('data-toolbar-item')!));
-        }
-      }
-
-      // Apply inline styles to hide overflow items immediately
-      allItems.forEach(item => {
-        const idx = parseInt(item.getAttribute('data-toolbar-item')!);
-        if (overflow.has(idx)) {
-          item.style.position = 'absolute';
-          item.style.visibility = 'hidden';
-          item.style.pointerEvents = 'none';
-        } else {
-          item.style.position = '';
-          item.style.visibility = '';
-          item.style.pointerEvents = '';
-        }
-      });
-
-      // Only update state if overflow set changed
-      const key = [...overflow].sort((a, b) => a - b).join(',');
-      if (key !== prevKeyRef.current) {
-        prevKeyRef.current = key;
-        setOverflowIndices(overflow);
-      }
-    };
-
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    measure();
-
-    return () => ro.disconnect();
-  }, deps);
-
-  return [ref, overflowIndices];
-}
-
 function App() {
   const [images, setImages] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -1111,9 +1015,330 @@ function App() {
 
   const zoomPercent = Math.round(zoom * 100);
 
-  const [leftRef, leftOverflow] = useToolbarOverflow([images.length, !!currentFolder, sidebarVisible, !!fileName, sortBy, language]);
-  const [centerRef, centerOverflow] = useToolbarOverflow([images.length, slideshowActive, slideshowInterval, language]);
-  const [rightRef, rightOverflow] = useToolbarOverflow([!!imageUrl, zoomPercent, fullscreen, theme, language]);
+  const handleOverflowChange = useCallback((overflowIds: Set<string>) => {
+    if (overflowIds.has("sort-controls")) setSortDropdownOpen(false);
+  }, []);
+
+  const toolbarItems = useMemo((): ToolbarItemDef[] => {
+    const items: ToolbarItemDef[] = [];
+    const showExtras = images.length > 0 || !!currentFolder;
+    const showCenter = images.length > 1;
+
+    /* ── Left section ─────────────────────────────────────── */
+
+    items.push({
+      id: "open", section: "left", priority: 0, condition: true,
+      renderToolbar: () => (
+        <button className="toolbar-btn" onClick={openFile} title={t("toolbar.openImage", language)}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            <rect x="8" y="11" width="8" height="6" rx="1" />
+            <circle cx="10" cy="13.5" r="1" />
+            <polyline points="21 15 16 10 13 13" />
+          </svg>
+        </button>
+      ),
+      renderMenu: () => (
+        <button className="toolbar-more-item" onClick={openFile}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+          {t("toolbar.openImage", language)}
+        </button>
+      ),
+    });
+
+    items.push({
+      id: "sidebar-toggle", section: "left", priority: 5, condition: showExtras,
+      renderToolbar: () => (
+        <button className={`toolbar-btn${sidebarVisible ? " active" : ""}`} onClick={() => setSidebarVisible((v) => !v)} title={t("toolbar.toggleSidebar", language)}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M10 3v18" />
+            <rect x="5" y="7" width="3" height="3" fill="currentColor" />
+            <rect x="5" y="12" width="3" height="3" fill="currentColor" />
+            <rect x="5" y="17" width="3" height="1" fill="currentColor" />
+          </svg>
+        </button>
+      ),
+      renderMenu: () => (
+        <button className="toolbar-more-item" onClick={() => setSidebarVisible((v) => !v)}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M10 3v18" />
+          </svg>
+          {t("toolbar.toggleSidebar", language)}
+        </button>
+      ),
+    });
+
+    items.push({
+      id: "sort-controls", section: "left", priority: 10, condition: showExtras,
+      renderToolbar: () => (
+        <div className="sort-controls" ref={sortDropdownRef}>
+          <button className="sort-btn" onClick={() => setSortDropdownOpen((o) => !o)} title={translate(`sort.${sortBy}`, language)}>
+            <span className="sort-label">{translate(`sort.${sortBy}`, language)}</span>
+            <svg className="sort-chevron" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+          {sortDropdownOpen && (
+            <div className="sort-dropdown">
+              {(["name", "dimensions", "aspect-ratio", "modified"] as SortMode[]).map((mode) => (
+                <button key={mode} className={`sort-dropdown-item${mode === sortBy ? " active" : ""}`} onClick={() => { setSortBy(mode); setSortDropdownOpen(false); }}>
+                  {translate(`sort.${mode}`, language)}
+                </button>
+              ))}
+            </div>
+          )}
+          <button className="sort-dir-btn" onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))} title={sortOrder === "asc" ? t("sort.ascending", language) : t("sort.descending", language)}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" stroke="none">
+              {sortOrder === "asc" ? (
+                <>
+                  <rect x="0" y="9" width="3" height="3" rx="0.5" opacity="0.35" />
+                  <rect x="4.5" y="5" width="3" height="7" rx="0.5" opacity="0.65" />
+                  <rect x="9" y="0" width="3" height="12" rx="0.5" />
+                </>
+              ) : (
+                <>
+                  <rect x="0" y="0" width="3" height="12" rx="0.5" />
+                  <rect x="4.5" y="2" width="3" height="10" rx="0.5" opacity="0.65" />
+                  <rect x="9" y="7" width="3" height="5" rx="0.5" opacity="0.35" />
+                </>
+              )}
+            </svg>
+          </button>
+        </div>
+      ),
+      renderMenu: () => (
+        <>
+          <span className="toolbar-more-label">{language === "zh" ? "排序方式" : "Sort by"}</span>
+          {(["name", "dimensions", "aspect-ratio", "modified"] as SortMode[]).map((mode) => (
+            <button key={mode} className={`toolbar-more-item${mode === sortBy ? " active" : ""}`} onClick={() => setSortBy(mode)}>
+              {translate(`sort.${mode}`, language)}
+            </button>
+          ))}
+          <div className="toolbar-more-separator" />
+          <button className="toolbar-more-item" onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}>
+            {sortOrder === "asc" ? t("sort.ascending", language) : t("sort.descending", language)}
+          </button>
+        </>
+      ),
+    });
+
+    items.push({
+      id: "filename", section: "left", priority: 35, condition: !!fileName,
+      renderToolbar: () => <span className="toolbar-filename">{fileName}</span>,
+      renderMenu: () => <span className="toolbar-more-label">{fileName}</span>,
+    });
+
+    /* ── Center section ────────────────────────────────────── */
+
+    items.push({
+      id: "prev", section: "center", priority: 0, condition: showCenter,
+      renderToolbar: () => (
+        <button className="toolbar-btn" onClick={() => navigate(-1)} title={t("toolbar.previous", language)}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
+      ),
+      renderMenu: () => (
+        <button className="toolbar-more-item" onClick={() => navigate(-1)}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          {t("toolbar.previous", language)}
+        </button>
+      ),
+    });
+
+    items.push({
+      id: "counter", section: "center", priority: 20, condition: showCenter,
+      renderToolbar: () => <span className="toolbar-counter">{currentIndex + 1} / {images.length}</span>,
+      renderMenu: () => <span className="toolbar-more-label">{currentIndex + 1} / {images.length}</span>,
+    });
+
+    items.push({
+      id: "next", section: "center", priority: 0, condition: showCenter,
+      renderToolbar: () => (
+        <button className="toolbar-btn" onClick={() => navigate(1)} title={t("toolbar.next", language)}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
+      ),
+      renderMenu: () => (
+        <button className="toolbar-more-item" onClick={() => navigate(1)}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+          {t("toolbar.next", language)}
+        </button>
+      ),
+    });
+
+    items.push({
+      id: "slideshow", section: "center", priority: 15, condition: showCenter,
+      renderToolbar: () => (
+        <div className="slideshow-controls">
+          <button className="slideshow-play-btn" onClick={toggleSlideshow} title={slideshowActive ? t("slideshow.pause", language) : t("slideshow.play", language)}>
+            {slideshowActive ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <polygon points="6,3 20,12 6,21" />
+              </svg>
+            )}
+          </button>
+          <button className="slideshow-interval-btn" onClick={cycleSlideshowInterval} title={t("slideshow.interval", language)}>
+            <span className="interval-label">{slideshowInterval}s</span>
+          </button>
+        </div>
+      ),
+      renderMenu: () => (
+        <>
+          <button className="toolbar-more-item" onClick={toggleSlideshow}>
+            {slideshowActive ? t("slideshow.pause", language) : t("slideshow.play", language)}
+          </button>
+          <button className="toolbar-more-item" onClick={cycleSlideshowInterval}>
+            {t("slideshow.interval", language)}: {slideshowInterval}s
+          </button>
+        </>
+      ),
+    });
+
+    /* ── Right section ────────────────────────────────────── */
+
+    items.push({
+      id: "lang", section: "right", priority: 10, condition: true,
+      renderToolbar: () => (
+        <button className="toolbar-btn" onClick={() => setLanguage((l) => (l === "en" ? "zh" : "en"))} title={t("toolbar.switchLang", language)}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+          </svg>
+        </button>
+      ),
+      renderMenu: () => (
+        <button className="toolbar-more-item" onClick={() => setLanguage((l) => (l === "en" ? "zh" : "en"))}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" />
+          </svg>
+          {t("toolbar.switchLang", language)}
+        </button>
+      ),
+    });
+
+    items.push({
+      id: "theme", section: "right", priority: 10, condition: true,
+      renderToolbar: () => (
+        <button className="toolbar-btn" onClick={toggleTheme} title={theme === "dark" ? t("toolbar.switchToLight", language) : t("toolbar.switchToDark", language)}>
+          {theme === "dark" ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="5" />
+              <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+              <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          )}
+        </button>
+      ),
+      renderMenu: () => (
+        <button className="toolbar-more-item" onClick={toggleTheme}>
+          {theme === "dark" ? t("toolbar.switchToLight", language) : t("toolbar.switchToDark", language)}
+        </button>
+      ),
+    });
+
+    items.push({
+      id: "fullscreen", section: "right", priority: 5, condition: true,
+      renderToolbar: () => (
+        <button className="toolbar-btn" onClick={toggleFullscreen} title={fullscreen ? t("toolbar.exitFullscreen", language) : t("toolbar.fullscreen", language)}>
+          {fullscreen ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
+              <line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
+              <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          )}
+        </button>
+      ),
+      renderMenu: () => (
+        <button className="toolbar-more-item" onClick={toggleFullscreen}>
+          {fullscreen ? t("toolbar.exitFullscreen", language) : t("toolbar.fullscreen", language)}
+        </button>
+      ),
+    });
+
+    items.push({
+      id: "zoom-controls", section: "right", priority: 15, condition: !!imageUrl,
+      renderToolbar: () => (
+        <div className="zoom-controls">
+          <button className="toolbar-btn" onClick={() => {
+            const el = imageAreaRef.current;
+            if (el) { const r = el.getBoundingClientRect(); zoomToward(r.width / 2, r.height / 2, -ZOOM_STEP * 2); }
+          }} title={t("toolbar.zoomOut", language)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="8" y1="11" x2="14" y2="11" />
+            </svg>
+          </button>
+          <span className="zoom-label" onClick={resetView} title={t("toolbar.resetZoom", language)}>{zoomPercent}%</span>
+          <button className="toolbar-btn" onClick={() => {
+            const el = imageAreaRef.current;
+            if (el) { const r = el.getBoundingClientRect(); zoomToward(r.width / 2, r.height / 2, ZOOM_STEP * 2); }
+          }} title={t("toolbar.zoomIn", language)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="11" y1="8" x2="11" y2="14" /><line x1="8" y1="11" x2="14" y2="11" />
+            </svg>
+          </button>
+        </div>
+      ),
+      renderMenu: () => (
+        <>
+          <button className="toolbar-more-item" onClick={() => {
+            const el = imageAreaRef.current;
+            if (el) { const r = el.getBoundingClientRect(); zoomToward(r.width / 2, r.height / 2, -ZOOM_STEP * 2); }
+          }}>
+            {t("toolbar.zoomOut", language)}
+          </button>
+          <button className="toolbar-more-item" onClick={resetView}>
+            {t("toolbar.resetZoom", language)} ({zoomPercent}%)
+          </button>
+          <button className="toolbar-more-item" onClick={() => {
+            const el = imageAreaRef.current;
+            if (el) { const r = el.getBoundingClientRect(); zoomToward(r.width / 2, r.height / 2, ZOOM_STEP * 2); }
+          }}>
+            {t("toolbar.zoomIn", language)}
+          </button>
+        </>
+      ),
+    });
+
+    return items;
+  }, [
+    language,
+    images.length, currentFolder,
+    sidebarVisible,
+    fileName,
+    sortBy, sortOrder, sortDropdownOpen,
+    theme,
+    fullscreen,
+    imageUrl, zoomPercent,
+    slideshowActive, slideshowInterval,
+    currentIndex,
+    openFile, navigate, toggleSlideshow, cycleSlideshowInterval,
+    toggleFullscreen, toggleTheme, resetView,
+  ]);
 
   const areaClass = "image-area" + (dragging ? " dragging" : imageUrl ? " grab" : "");
 
@@ -1135,333 +1360,7 @@ function App() {
         />
       )}
       <div className="viewer-right">
-        <div className="toolbar">
-        <div className="toolbar-left" ref={leftRef}>
-          <button className="toolbar-btn" data-toolbar-item="0" onClick={openFile} title={t("toolbar.openImage", language)}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              <rect x="8" y="11" width="8" height="6" rx="1" />
-              <circle cx="10" cy="13.5" r="1" />
-              <polyline points="21 15 16 10 13 13" />
-            </svg>
-          </button>
-          <button
-            className={`toolbar-btn${sidebarVisible ? " active" : ""}`}
-            data-toolbar-item="1"
-            style={{ display: (images.length > 0 || currentFolder) ? '' : 'none' }}
-            onClick={() => setSidebarVisible((v) => !v)}
-            title={t("toolbar.toggleSidebar", language)}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <path d="M10 3v18" />
-              <rect x="5" y="7" width="3" height="3" fill="currentColor" />
-              <rect x="5" y="12" width="3" height="3" fill="currentColor" />
-              <rect x="5" y="17" width="3" height="1" fill="currentColor" />
-            </svg>
-          </button>
-          <div className="sort-controls" data-toolbar-item="2" ref={sortDropdownRef} style={{ display: (images.length > 0 || currentFolder) ? '' : 'none' }}>
-            <button
-              className="sort-btn"
-              onClick={() => setSortDropdownOpen((o) => !o)}
-              title={translate(`sort.${sortBy}`, language)}
-            >
-              <span className="sort-label">{translate(`sort.${sortBy}`, language)}</span>
-              <svg className="sort-chevron" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </button>
-            {sortDropdownOpen && (
-              <div className="sort-dropdown">
-                {(["name", "dimensions", "aspect-ratio", "modified"] as SortMode[]).map((mode) => (
-                  <button
-                    key={mode}
-                    className={`sort-dropdown-item${mode === sortBy ? " active" : ""}`}
-                    onClick={() => { setSortBy(mode); setSortDropdownOpen(false); }}
-                  >
-                    {translate(`sort.${mode}`, language)}
-                  </button>
-                ))}
-              </div>
-            )}
-            <button
-              className="sort-dir-btn"
-              onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
-              title={sortOrder === "asc" ? t("sort.ascending", language) : t("sort.descending", language)}
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" stroke="none">
-                {sortOrder === "asc" ? (
-                  <>
-                    <rect x="0" y="9" width="3" height="3" rx="0.5" opacity="0.35" />
-                    <rect x="4.5" y="5" width="3" height="7" rx="0.5" opacity="0.65" />
-                    <rect x="9" y="0" width="3" height="12" rx="0.5" />
-                  </>
-                ) : (
-                  <>
-                    <rect x="0" y="0" width="3" height="12" rx="0.5" />
-                    <rect x="4.5" y="2" width="3" height="10" rx="0.5" opacity="0.65" />
-                    <rect x="9" y="7" width="3" height="5" rx="0.5" opacity="0.35" />
-                  </>
-                )}
-              </svg>
-            </button>
-          </div>
-          <span className="toolbar-filename" data-toolbar-item="3" style={{ display: fileName ? '' : 'none' }}>{fileName}</span>
-
-          <div className={`toolbar-more-btn${leftOverflow.size > 0 ? " visible" : ""}`} data-toolbar-more="true">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" stroke="none">
-              <circle cx="3" cy="8" r="1.5" />
-              <circle cx="8" cy="8" r="1.5" />
-              <circle cx="13" cy="8" r="1.5" />
-            </svg>
-            <div className="toolbar-more-menu">
-              {leftOverflow.has(0) && (
-                <button className="toolbar-more-item" onClick={openFile}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                  </svg>
-                  {t("toolbar.openImage", language)}
-                </button>
-              )}
-              {leftOverflow.has(1) && (images.length > 0 || currentFolder) && (
-                <button className="toolbar-more-item" onClick={() => setSidebarVisible((v) => !v)}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                    <path d="M10 3v18" />
-                  </svg>
-                  {t("toolbar.toggleSidebar", language)}
-                </button>
-              )}
-              {leftOverflow.has(2) && (images.length > 0 || currentFolder) && (
-                <>
-                  <span className="toolbar-more-label">{language === "zh" ? "排序方式" : "Sort by"}</span>
-                  {(["name", "dimensions", "aspect-ratio", "modified"] as SortMode[]).map((mode) => (
-                    <button
-                      key={mode}
-                      className={`toolbar-more-item${mode === sortBy ? " active" : ""}`}
-                      onClick={() => setSortBy(mode)}
-                    >
-                      {translate(`sort.${mode}`, language)}
-                    </button>
-                  ))}
-                  <div className="toolbar-more-separator" />
-                  <button
-                    className="toolbar-more-item"
-                    onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}
-                  >
-                    {sortOrder === "asc" ? t("sort.ascending", language) : t("sort.descending", language)}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {images.length > 1 && (
-          <div className="toolbar-center" ref={centerRef}>
-            <button className="toolbar-btn" data-toolbar-item="0" onClick={() => navigate(-1)} title={t("toolbar.previous", language)}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
-            </button>
-            <span className="toolbar-counter" data-toolbar-item="1">
-              {currentIndex + 1} / {images.length}
-            </span>
-            <button className="toolbar-btn" data-toolbar-item="2" onClick={() => navigate(1)} title={t("toolbar.next", language)}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
-            </button>
-            <div className="slideshow-controls" data-toolbar-item="3">
-              <button
-                className="slideshow-play-btn"
-                onClick={toggleSlideshow}
-                title={slideshowActive ? t("slideshow.pause", language) : t("slideshow.play", language)}
-              >
-                {slideshowActive ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                    <rect x="6" y="4" width="4" height="16" rx="1" />
-                    <rect x="14" y="4" width="4" height="16" rx="1" />
-                  </svg>
-                ) : (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                    <polygon points="6,3 20,12 6,21" />
-                  </svg>
-                )}
-              </button>
-              <button
-                className="slideshow-interval-btn"
-                onClick={cycleSlideshowInterval}
-                title={t("slideshow.interval", language)}
-              >
-                <span className="interval-label">{slideshowInterval}s</span>
-              </button>
-            </div>
-
-            <div className={`toolbar-more-btn${centerOverflow.size > 0 ? " visible" : ""}`} data-toolbar-more="true">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" stroke="none">
-                <circle cx="3" cy="8" r="1.5" />
-                <circle cx="8" cy="8" r="1.5" />
-                <circle cx="13" cy="8" r="1.5" />
-              </svg>
-              <div className="toolbar-more-menu">
-                {centerOverflow.has(0) && (
-                  <button className="toolbar-more-item" onClick={() => navigate(-1)}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="15 18 9 12 15 6" />
-                    </svg>
-                    {t("toolbar.previous", language)}
-                  </button>
-                )}
-                {centerOverflow.has(2) && (
-                  <button className="toolbar-more-item" onClick={() => navigate(1)}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
-                    {t("toolbar.next", language)}
-                  </button>
-                )}
-                {centerOverflow.has(3) && (
-                  <>
-                    <button className="toolbar-more-item" onClick={toggleSlideshow}>
-                      {slideshowActive ? t("slideshow.pause", language) : t("slideshow.play", language)}
-                    </button>
-                    <button className="toolbar-more-item" onClick={cycleSlideshowInterval}>
-                      {t("slideshow.interval", language)}: {slideshowInterval}s
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="toolbar-right" ref={rightRef}>
-          <button className="toolbar-btn" data-toolbar-item="0" onClick={() => setLanguage((l) => (l === "en" ? "zh" : "en"))} title={t("toolbar.switchLang", language)}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="2" y1="12" x2="22" y2="12" />
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-            </svg>
-          </button>
-          <button className="toolbar-btn" data-toolbar-item="1" onClick={toggleTheme} title={theme === "dark" ? t("toolbar.switchToLight", language) : t("toolbar.switchToDark", language)}>
-            {theme === "dark" ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="5" />
-                <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-              </svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-              </svg>
-            )}
-          </button>
-          <button
-            className="toolbar-btn"
-            data-toolbar-item="2"
-            onClick={toggleFullscreen}
-            title={fullscreen ? t("toolbar.exitFullscreen", language) : t("toolbar.fullscreen", language)}
-          >
-            {fullscreen ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="4 14 10 14 10 20" />
-                <polyline points="20 10 14 10 14 4" />
-                <line x1="14" y1="10" x2="21" y2="3" />
-                <line x1="3" y1="21" x2="10" y2="14" />
-              </svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 3 21 3 21 9" />
-                <polyline points="9 21 3 21 3 15" />
-                <line x1="21" y1="3" x2="14" y2="10" />
-                <line x1="3" y1="21" x2="10" y2="14" />
-              </svg>
-            )}
-          </button>
-          <div className="zoom-controls" data-toolbar-item="3" style={{ display: imageUrl ? '' : 'none' }}>
-            <button className="toolbar-btn" onClick={() => {
-              const el = imageAreaRef.current;
-              if (el) {
-                const r = el.getBoundingClientRect();
-                zoomToward(r.width / 2, r.height / 2, -ZOOM_STEP * 2);
-              }
-            }} title={t("toolbar.zoomOut", language)}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="8" y1="11" x2="14" y2="11" />
-              </svg>
-            </button>
-            <span className="zoom-label" onClick={resetView} title={t("toolbar.resetZoom", language)}>{zoomPercent}%</span>
-            <button className="toolbar-btn" onClick={() => {
-              const el = imageAreaRef.current;
-              if (el) {
-                const r = el.getBoundingClientRect();
-                zoomToward(r.width / 2, r.height / 2, ZOOM_STEP * 2);
-              }
-            }} title={t("toolbar.zoomIn", language)}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /><line x1="11" y1="8" x2="11" y2="14" /><line x1="8" y1="11" x2="14" y2="11" />
-              </svg>
-            </button>
-          </div>
-
-          <div className={`toolbar-more-btn${rightOverflow.size > 0 ? " visible" : ""}`} data-toolbar-more="true">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" stroke="none">
-              <circle cx="3" cy="8" r="1.5" />
-              <circle cx="8" cy="8" r="1.5" />
-              <circle cx="13" cy="8" r="1.5" />
-            </svg>
-            <div className="toolbar-more-menu">
-              {rightOverflow.has(0) && (
-                <button className="toolbar-more-item" onClick={() => setLanguage((l) => (l === "en" ? "zh" : "en"))}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="2" y1="12" x2="22" y2="12" />
-                  </svg>
-                  {t("toolbar.switchLang", language)}
-                </button>
-              )}
-              {rightOverflow.has(1) && (
-                <button className="toolbar-more-item" onClick={toggleTheme}>
-                  {theme === "dark" ? t("toolbar.switchToLight", language) : t("toolbar.switchToDark", language)}
-                </button>
-              )}
-              {rightOverflow.has(2) && (
-                <button className="toolbar-more-item" onClick={toggleFullscreen}>
-                  {fullscreen ? t("toolbar.exitFullscreen", language) : t("toolbar.fullscreen", language)}
-                </button>
-              )}
-              {rightOverflow.has(3) && imageUrl && (
-                <>
-                  <button className="toolbar-more-item" onClick={() => {
-                    const el = imageAreaRef.current;
-                    if (el) {
-                      const r = el.getBoundingClientRect();
-                      zoomToward(r.width / 2, r.height / 2, -ZOOM_STEP * 2);
-                    }
-                  }}>
-                    {t("toolbar.zoomOut", language)}
-                  </button>
-                  <button className="toolbar-more-item" onClick={resetView}>
-                    {t("toolbar.resetZoom", language)} ({zoomPercent}%)
-                  </button>
-                  <button className="toolbar-more-item" onClick={() => {
-                    const el = imageAreaRef.current;
-                    if (el) {
-                      const r = el.getBoundingClientRect();
-                      zoomToward(r.width / 2, r.height / 2, ZOOM_STEP * 2);
-                    }
-                  }}>
-                    {t("toolbar.zoomIn", language)}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+        <Toolbar items={toolbarItems} onOverflowChange={handleOverflowChange} />
 
       {breadcrumbs.length > 0 && (
         <div className="breadcrumb-bar">
