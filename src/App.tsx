@@ -1321,26 +1321,24 @@ function App() {
 
   return (
     <div className={`viewer${isNativeFullscreen ? " fullscreen" : ""}${isImmersive ? " immersive" : ""}`}>
-      {!isImmersive && (
-        <Sidebar
-          images={images}
-          currentIndex={currentIndex}
-          onSelect={(index) => { setSlideshowActive(false); jumpTo(index); }}
-          visible={sidebarVisible}
-          currentFolder={currentFolder}
-          subdirs={subdirs}
-          parentPath={currentFolder ? getParentDir(currentFolder) : null}
-          onNavigateFolder={navigateToFolder}
-          onNavigateUp={navigateUp}
-          language={language}
-          recentFolders={recentFolders}
-          width={sidebarWidth}
-          onWidthChange={(w) => {
-            setSidebarWidth(w);
-            try { localStorage.setItem("sidebar-width", String(w)); } catch { /* ignore */ }
-          }}
-        />
-      )}
+      <Sidebar
+        images={images}
+        currentIndex={currentIndex}
+        onSelect={(index) => { setSlideshowActive(false); jumpTo(index); }}
+        visible={sidebarVisible}
+        currentFolder={currentFolder}
+        subdirs={subdirs}
+        parentPath={currentFolder ? getParentDir(currentFolder) : null}
+        onNavigateFolder={navigateToFolder}
+        onNavigateUp={navigateUp}
+        language={language}
+        recentFolders={recentFolders}
+        width={sidebarWidth}
+        onWidthChange={(w) => {
+          setSidebarWidth(w);
+          try { localStorage.setItem("sidebar-width", String(w)); } catch { /* ignore */ }
+        }}
+      />
       <div className="viewer-right">
         <Toolbar items={toolbarItems} onOverflowChange={handleOverflowChange} />
 

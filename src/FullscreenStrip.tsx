@@ -16,7 +16,7 @@ export default function FullscreenStrip({
   slideshowActive, slideshowInterval,
   onToggleSlideshow, onCycleInterval,
 }: FullscreenStripProps) {
-  const [visible, setVisible] = useState(true);
+  const [visible, setVisible] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stripRef = useRef<HTMLDivElement>(null);
 
@@ -26,19 +26,37 @@ export default function FullscreenStrip({
     hideTimer.current = setTimeout(() => setVisible(false), 2000);
   }, []);
 
-  // Auto-scroll to active item
+  // Smooth-scroll to active item with ease-out animation
   useEffect(() => {
     const strip = stripRef.current;
     if (!strip) return;
     const activeItem = strip.children[currentIndex] as HTMLElement | undefined;
-    if (activeItem) {
-      activeItem.scrollIntoView({
-        behavior: slideshowActive ? "instant" : "smooth",
-        inline: "center",
-        block: "nearest",
-      });
+    if (!activeItem) return;
+
+    const target = activeItem.offsetLeft - strip.offsetWidth / 2 + activeItem.offsetWidth / 2;
+    const start = strip.scrollLeft;
+    const distance = target - start;
+    if (Math.abs(distance) < 4) {
+      strip.scrollLeft = target;
+      return;
     }
-  }, [currentIndex, slideshowActive]);
+
+    const duration = 300; // ms
+    const startTime = performance.now();
+
+    const el = strip;
+    function animate(now: number) {
+      const elapsed = now - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - t, 3);
+      el.scrollLeft = start + distance * eased;
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      }
+    }
+    requestAnimationFrame(animate);
+  }, [currentIndex]);
 
   // Show on mount, start hide timer
   useEffect(() => {

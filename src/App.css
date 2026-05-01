@@ -680,6 +680,10 @@ html, body, #root {
 
 /* ── Fullscreen ──────────────────────────────────────────────────── */
 
+.viewer.immersive .sidebar {
+  display: none;
+}
+
 .viewer.immersive .toolbar {
   display: none;
 }
