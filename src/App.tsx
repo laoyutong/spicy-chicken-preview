@@ -241,12 +241,13 @@ function App() {
     }
 
     const ctx = canvas.getContext("2d")!;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cw, ch);
 
     const iw = imgW.current;
     const ih = imgH.current;
     if (iw <= 0 || ih <= 0) return;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cw, ch);
 
     const z = zoomRef.current;
     const px = panXRef.current;
@@ -578,9 +579,6 @@ function App() {
       if (momentumRaf.current) { cancelAnimationFrame(momentumRaf.current); momentumRaf.current = 0; }
       const newIndex = (currentIndex + delta + images.length) % images.length;
       setCurrentIndex(newIndex);
-      imgW.current = 0;
-      imgH.current = 0;
-      sourceImg.current = null;
       loadImage(images[newIndex], true);
     },
     [images, currentIndex, loadImage, startCrossfade]
@@ -592,9 +590,6 @@ function App() {
       startCrossfade();
       if (momentumRaf.current) { cancelAnimationFrame(momentumRaf.current); momentumRaf.current = 0; }
       setCurrentIndex(index);
-      imgW.current = 0;
-      imgH.current = 0;
-      sourceImg.current = null;
       loadImage(images[index], true);
     },
     [images, currentIndex, loadImage, startCrossfade]
