@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useLayoutEffect, useState, useCallback } from "react";
 import { CachedThumbnail } from "./thumbnailCache";
 
 interface FullscreenStripProps {
@@ -26,34 +26,38 @@ export default function FullscreenStrip({
     hideTimer.current = setTimeout(() => setVisible(false), 2000);
   }, []);
 
-  // Smooth-scroll to active item with ease-out animation
-  useEffect(() => {
+  const mountedRef = useRef(false);
+
+  // Snap to current item on mount (before paint), smooth-scroll on subsequent changes
+  useLayoutEffect(() => {
     const strip = stripRef.current;
     if (!strip) return;
     const activeItem = strip.children[currentIndex] as HTMLElement | undefined;
     if (!activeItem) return;
 
     const target = activeItem.offsetLeft - strip.offsetWidth / 2 + activeItem.offsetWidth / 2;
-    const start = strip.scrollLeft;
-    const distance = target - start;
-    if (Math.abs(distance) < 4) {
+
+    if (!mountedRef.current) {
+      // First mount: snap immediately, no animation
+      mountedRef.current = true;
       strip.scrollLeft = target;
       return;
     }
 
-    const duration = 300; // ms
-    const startTime = performance.now();
+    const start = strip.scrollLeft;
+    const distance = target - start;
+    if (Math.abs(distance) < 4) return;
 
+    const duration = 300;
+    const startTime = performance.now();
     const el = strip;
+
     function animate(now: number) {
       const elapsed = now - startTime;
       const t = Math.min(elapsed / duration, 1);
-      // ease-out cubic
       const eased = 1 - Math.pow(1 - t, 3);
       el.scrollLeft = start + distance * eased;
-      if (t < 1) {
-        requestAnimationFrame(animate);
-      }
+      if (t < 1) requestAnimationFrame(animate);
     }
     requestAnimationFrame(animate);
   }, [currentIndex]);
