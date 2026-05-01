@@ -437,11 +437,10 @@ function App() {
           return;
         }
 
-        // Load new image with async decoding to keep the main thread responsive
+        // Load new image with async decoding — keep old sourceImg visible until ready
         const img = new Image();
         img.decoding = "async";
         img.src = url;
-        sourceImg.current = null;
 
         try {
           await img.decode();
@@ -449,7 +448,6 @@ function App() {
           // decode() rejects when the image is broken; onerror path handles it
           if (img.naturalWidth === 0) {
             setError("error.loadFailed");
-            sourceImg.current = null;
             finishCrossfade();
             return;
           }
