@@ -230,15 +230,29 @@ html, body, #root {
   z-index: 1;
 }
 
-.fade-canvas {
-  display: block;
+.canvas-loading-bar {
   position: absolute;
-  top: 0;
+  bottom: 0;
   left: 0;
-  pointer-events: none;
-  z-index: 2;
+  right: 0;
+  height: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+  z-index: 3;
   opacity: 0;
-  transition: opacity 0.4s ease;
+  transition: opacity 0.15s ease;
+}
+
+.canvas-loading-bar.active {
+  animation: loading-slide 1.2s ease-in-out infinite;
+  opacity: 1;
+}
+
+@keyframes loading-slide {
+  0%   { left: 0; width: 0; }
+  30%  { left: 0; width: 30%; }
+  70%  { left: 70%; width: 30%; }
+  100% { left: 100%; width: 0; }
 }
 
 /* ── Empty / Error State ───────────────────────────────────────── */

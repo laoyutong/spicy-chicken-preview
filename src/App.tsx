@@ -160,6 +160,7 @@ function App() {
   const [slideshowInterval, setSlideshowInterval] = useState(3);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
+  const [loading, setLoading] = useState(false);
 
   // Image preload cache with LRU eviction (capped at ~12 images / ~300MB)
   const imageCache = useRef<LRUImageCache>(new LRUImageCache());
@@ -196,11 +197,12 @@ function App() {
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const velocitySamples = useRef<{ x: number; y: number; t: number }[]>([]);
   const momentumRaf = useRef(0);
-  const crossfadeRaf = useRef(0);
-  const crossfadeGen = useRef(0);
+  const loadGen = useRef(0);
+  const loadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadDebounceStartRef = useRef(0);
+  const loadStartTimeRef = useRef(0);
   const imageAreaRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fadeCanvasRef = useRef<HTMLCanvasElement>(null);
   const fullscreenTransitioningRef = useRef(false);
 
   useEffect(() => { zoomRef.current = zoom; }, [zoom]);
@@ -301,47 +303,6 @@ function App() {
     };
   }, [draw]);
 
-  // ── Crossfade helpers ───────────────────────────────────────────
-
-  // Snapshot current canvas to fade layer — keeps old image visible while new one loads
-  const startCrossfade = useCallback(() => {
-    const main = canvasRef.current;
-    const fade = fadeCanvasRef.current;
-    if (!main || !fade || main.width === 0) return;
-
-    // Cancel any pending fade-out from a previous navigation
-    crossfadeGen.current++;
-    if (crossfadeRaf.current) {
-      cancelAnimationFrame(crossfadeRaf.current);
-      crossfadeRaf.current = 0;
-    }
-
-    fade.width = main.width;
-    fade.height = main.height;
-    fade.style.width = main.style.width;
-    fade.style.height = main.style.height;
-    const fadeCtx = fade.getContext("2d")!;
-    fadeCtx.clearRect(0, 0, fade.width, fade.height);
-    fadeCtx.drawImage(main, 0, 0);
-
-    fade.style.transition = "none";
-    fade.style.opacity = "1";
-  }, []);
-
-  const finishCrossfade = useCallback(() => {
-    const fade = fadeCanvasRef.current;
-    if (!fade) return;
-    const gen = crossfadeGen.current;
-    crossfadeRaf.current = requestAnimationFrame(() => {
-      crossfadeRaf.current = 0;
-      // Skip if a new startCrossfade happened since this was scheduled
-      if (crossfadeGen.current !== gen) return;
-      if (!fadeCanvasRef.current) return;
-      fadeCanvasRef.current.style.transition = "opacity 0.25s ease";
-      fadeCanvasRef.current.style.opacity = "0";
-    });
-  }, []);
-
   // ── Zoom helper ────────────────────────────────────────────────
 
   const zoomToward = useCallback((cx: number, cy: number, step: number) => {
@@ -422,6 +383,9 @@ function App() {
 
   const loadImage = useCallback(
     async (filePath: string, reset: boolean) => {
+      const gen = ++loadGen.current;
+      loadStartTimeRef.current = Date.now();
+      setLoading(true);
       try {
         const url = convertFileSrc(filePath);
         setImageUrl(url);
@@ -440,12 +404,12 @@ function App() {
         // Check cache first for instant display
         const cached = imageCache.current.get(filePath);
         if (cached && cached.complete && cached.naturalWidth > 0) {
+          if (loadGen.current !== gen) return;
           sourceImg.current = cached;
           imgW.current = cached.naturalWidth;
           imgH.current = cached.naturalHeight;
           setImageDimensions({ w: cached.naturalWidth, h: cached.naturalHeight });
           draw();
-          finishCrossfade();
           await metadataPromise;
           return;
         }
@@ -459,13 +423,15 @@ function App() {
           await img.decode();
         } catch {
           // decode() rejects when the image is broken; onerror path handles it
+          if (loadGen.current !== gen) return;
           if (img.naturalWidth === 0) {
             setError("error.loadFailed");
-            finishCrossfade();
             return;
           }
           // If decode() rejected but image is valid (edge case), fall through
         }
+
+        if (loadGen.current !== gen) return;
 
         sourceImg.current = img;
         imgW.current = img.naturalWidth;
@@ -473,19 +439,29 @@ function App() {
         setImageDimensions({ w: img.naturalWidth, h: img.naturalHeight });
         imageCache.current.set(filePath, img);
         draw();
-        finishCrossfade();
 
         await metadataPromise;
 
-        // Preload neighbours after current image loads
+        // Preload neighbours after current image loads (only if still current)
         const idx = images.indexOf(filePath);
-        if (idx !== -1) preloadAdjacent(idx);
+        if (idx !== -1 && loadGen.current === gen) preloadAdjacent(idx);
       } catch {
+        if (loadGen.current !== gen) return;
         setError("error.loadFailed");
-        finishCrossfade();
+      } finally {
+        if (loadGen.current === gen) {
+          // Ensure loading bar shows for at least 200ms
+          const elapsed = Date.now() - loadStartTimeRef.current;
+          const minRemaining = Math.max(0, 200 - elapsed);
+          if (minRemaining > 0) {
+            setTimeout(() => setLoading(false), minRemaining);
+          } else {
+            setLoading(false);
+          }
+        }
       }
     },
-    [resetView, draw, images, preloadAdjacent, finishCrossfade]
+    [resetView, draw, images, preloadAdjacent]
   );
 
   const addToRecentFolders = useCallback((folderPath: string) => {
@@ -583,27 +559,83 @@ function App() {
     }
   }, [loadFolder]);
 
+  // Smart scheduling: first non-cached press loads immediately (responsive single-step).
+  // Rapid repeat (< 400ms burst) → trailing debounce 150ms (skip intermediates).
+  // Sustained key-hold (> 400ms burst) → force periodic loads (visual feedback).
+  // Cached images always load instantly regardless of burst state.
+  const scheduleLoad = useCallback(
+    (filePath: string, reset: boolean) => {
+      // Cancel any pending debounced load
+      if (loadDebounceRef.current) {
+        clearTimeout(loadDebounceRef.current);
+        loadDebounceRef.current = null;
+      }
+
+      // Show loading indicator immediately for all navigations
+      setLoading(true);
+
+      // Cached images always load instantly
+      const cached = imageCache.current.get(filePath);
+      if (cached && cached.complete && cached.naturalWidth > 0) {
+        loadDebounceStartRef.current = 0;
+        loadImage(filePath, reset);
+        return;
+      }
+
+      const now = Date.now();
+      if (!loadDebounceStartRef.current) {
+        // First press in a burst: load immediately for responsive single-step navigation
+        loadDebounceStartRef.current = now;
+        loadImage(filePath, reset);
+        return;
+      }
+
+      const burstDuration = now - loadDebounceStartRef.current;
+      const THROTTLE_MS = 400;
+      const DEBOUNCE_MS = 150;
+
+      let delay: number;
+      if (burstDuration > THROTTLE_MS) {
+        // Sustained navigation: force an immediate load for visual feedback, then reset burst window
+        loadDebounceStartRef.current = now;
+        delay = 0;
+      } else {
+        // Rapid repeat: skip intermediate images, only load when user settles
+        delay = DEBOUNCE_MS;
+      }
+
+      loadDebounceRef.current = setTimeout(() => {
+        loadDebounceRef.current = null;
+        loadImage(filePath, reset);
+      }, delay);
+    },
+    [loadImage]
+  );
+
   const navigate = useCallback(
     (delta: number) => {
       if (images.length === 0) return;
-      startCrossfade();
       if (momentumRaf.current) { cancelAnimationFrame(momentumRaf.current); momentumRaf.current = 0; }
-      const newIndex = (currentIndex + delta + images.length) % images.length;
+      const idx = currentIndexRef.current;
+      const newIndex = (idx + delta + images.length) % images.length;
+      currentIndexRef.current = newIndex;
       setCurrentIndex(newIndex);
-      loadImage(images[newIndex], true);
+      preloadAdjacent(newIndex);
+      scheduleLoad(images[newIndex], true);
     },
-    [images, currentIndex, loadImage, startCrossfade]
+    [images, scheduleLoad, preloadAdjacent]
   );
 
   const jumpTo = useCallback(
     (index: number) => {
-      if (images.length === 0 || index === currentIndex) return;
-      startCrossfade();
+      if (images.length === 0 || index === currentIndexRef.current) return;
       if (momentumRaf.current) { cancelAnimationFrame(momentumRaf.current); momentumRaf.current = 0; }
+      currentIndexRef.current = index;
       setCurrentIndex(index);
+      preloadAdjacent(index);
       loadImage(images[index], true);
     },
-    [images, currentIndex, loadImage, startCrossfade]
+    [images, loadImage, preloadAdjacent]
   );
 
   const navigateToFolder = useCallback(
@@ -699,15 +731,12 @@ function App() {
   const slideshowAdvance = useCallback(() => {
     const imgs = imagesRef.current;
     if (imgs.length === 0) return;
-    startCrossfade();
     const newIndex = (currentIndexRef.current + 1) % imgs.length;
     currentIndexRef.current = newIndex;
     setCurrentIndex(newIndex);
-    imgW.current = 0;
-    imgH.current = 0;
-    sourceImg.current = null;
+    preloadAdjacent(newIndex);
     loadImage(imgs[newIndex], true);
-  }, [startCrossfade, loadImage]);
+  }, [loadImage, preloadAdjacent]);
 
   // Slideshow auto-advance
   useEffect(() => {
@@ -1385,16 +1414,16 @@ function App() {
     toggleImmersive, toggleNativeFullscreen,
   ]);
 
-  // Cancel animations on unmount
+  // Cancel animations and timers on unmount
   useEffect(() => {
     return () => {
       if (momentumRaf.current) {
         cancelAnimationFrame(momentumRaf.current);
         momentumRaf.current = 0;
       }
-      if (crossfadeRaf.current) {
-        cancelAnimationFrame(crossfadeRaf.current);
-        crossfadeRaf.current = 0;
+      if (loadDebounceRef.current) {
+        clearTimeout(loadDebounceRef.current);
+        loadDebounceRef.current = null;
       }
     };
   }, []);
@@ -1472,7 +1501,7 @@ function App() {
         ) : imageUrl ? (
           <div className="canvas-stack">
             <canvas ref={canvasRef} className="preview-canvas" />
-            <canvas ref={fadeCanvasRef} className="fade-canvas" />
+            <div className={`canvas-loading-bar${loading ? " active" : ""}`} />
           </div>
         ) : currentFolder ? (
           <div className="state-message">
