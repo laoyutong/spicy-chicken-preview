@@ -802,7 +802,30 @@ function App() {
     }
   }, []);
 
-  const toggleImmersive = useCallback(() => setIsImmersive((v) => !v), []);
+  const toggleImmersive = useCallback(() => {
+    setIsImmersive((v) => {
+      const next = !v;
+      if (next) {
+        // Entering immersive → also enter native fullscreen if not already
+        (async () => {
+          try {
+            const win = getCurrentWebviewWindow();
+            const fs = await win.isFullscreen();
+            if (!fs) {
+              fullscreenTransitioningRef.current = true;
+              await win.setFullscreen(true);
+              setIsNativeFullscreen(true);
+              setTimeout(() => {
+                fullscreenTransitioningRef.current = false;
+                draw();
+              }, 600);
+            }
+          } catch { /* ignore */ }
+        })();
+      }
+      return next;
+    });
+  }, []);
 
   const cycleSlideshowInterval = useCallback(() => {
     const intervals = [2, 3, 5, 10];
