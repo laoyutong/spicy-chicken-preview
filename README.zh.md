@@ -1,5 +1,7 @@
 # Spicy Chicken Preview
 
+[中文版](./README.zh.md) | [English](./README.md)
+
 基于 Tauri 2 + React 19 + TypeScript 构建的 macOS 原生图片查看器。简约、快速、键盘友好。
 
 ## 功能
