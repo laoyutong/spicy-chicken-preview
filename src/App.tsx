@@ -194,6 +194,8 @@ function App() {
   const isPanning = useRef(false);
   const hasPanned = useRef(false);
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+  const velocitySamples = useRef<{ x: number; y: number; t: number }[]>([]);
+  const momentumRaf = useRef(0);
   const imageAreaRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fadeCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -295,6 +297,36 @@ function App() {
       if (rafId) cancelAnimationFrame(rafId);
     };
   }, [draw]);
+
+  // ── Crossfade helpers ───────────────────────────────────────────
+
+  // Snapshot current canvas to fade layer — keeps old image visible while new one loads
+  const startCrossfade = useCallback(() => {
+    const main = canvasRef.current;
+    const fade = fadeCanvasRef.current;
+    if (!main || !fade || main.width === 0) return;
+
+    fade.width = main.width;
+    fade.height = main.height;
+    fade.style.width = main.style.width;
+    fade.style.height = main.style.height;
+    const fadeCtx = fade.getContext("2d")!;
+    fadeCtx.clearRect(0, 0, fade.width, fade.height);
+    fadeCtx.drawImage(main, 0, 0);
+
+    fade.style.transition = "none";
+    fade.style.opacity = "1";
+  }, []);
+
+  const finishCrossfade = useCallback(() => {
+    const fade = fadeCanvasRef.current;
+    if (!fade) return;
+    requestAnimationFrame(() => {
+      if (!fadeCanvasRef.current) return;
+      fadeCanvasRef.current.style.transition = "opacity 0.25s ease";
+      fadeCanvasRef.current.style.opacity = "0";
+    });
+  }, []);
 
   // ── Zoom helper ────────────────────────────────────────────────
 
@@ -399,6 +431,7 @@ function App() {
           imgH.current = cached.naturalHeight;
           setImageDimensions({ w: cached.naturalWidth, h: cached.naturalHeight });
           draw();
+          finishCrossfade();
           await metadataPromise;
           return;
         }
@@ -416,6 +449,7 @@ function App() {
           if (img.naturalWidth === 0) {
             setError("error.loadFailed");
             sourceImg.current = null;
+            finishCrossfade();
             return;
           }
           // If decode() rejected but image is valid (edge case), fall through
@@ -427,6 +461,7 @@ function App() {
         setImageDimensions({ w: img.naturalWidth, h: img.naturalHeight });
         imageCache.current.set(filePath, img);
         draw();
+        finishCrossfade();
 
         await metadataPromise;
 
@@ -435,9 +470,10 @@ function App() {
         if (idx !== -1) preloadAdjacent(idx);
       } catch {
         setError("error.loadFailed");
+        finishCrossfade();
       }
     },
-    [resetView, draw, images, preloadAdjacent]
+    [resetView, draw, images, preloadAdjacent, finishCrossfade]
   );
 
   const addToRecentFolders = useCallback((folderPath: string) => {
@@ -538,6 +574,8 @@ function App() {
   const navigate = useCallback(
     (delta: number) => {
       if (images.length === 0) return;
+      startCrossfade();
+      if (momentumRaf.current) { cancelAnimationFrame(momentumRaf.current); momentumRaf.current = 0; }
       const newIndex = (currentIndex + delta + images.length) % images.length;
       setCurrentIndex(newIndex);
       imgW.current = 0;
@@ -545,19 +583,21 @@ function App() {
       sourceImg.current = null;
       loadImage(images[newIndex], true);
     },
-    [images, currentIndex, loadImage]
+    [images, currentIndex, loadImage, startCrossfade]
   );
 
   const jumpTo = useCallback(
     (index: number) => {
       if (images.length === 0 || index === currentIndex) return;
+      startCrossfade();
+      if (momentumRaf.current) { cancelAnimationFrame(momentumRaf.current); momentumRaf.current = 0; }
       setCurrentIndex(index);
       imgW.current = 0;
       imgH.current = 0;
       sourceImg.current = null;
       loadImage(images[index], true);
     },
-    [images, currentIndex, loadImage]
+    [images, currentIndex, loadImage, startCrossfade]
   );
 
   const navigateToFolder = useCallback(
@@ -650,37 +690,10 @@ function App() {
     return () => { cancelled = true; };
   }, [sortBy, images.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Slideshow crossfade ─────────────────────────────────────────
-
-  const doCrossfade = useCallback(() => {
-    const main = canvasRef.current;
-    const fade = fadeCanvasRef.current;
-    if (!main || !fade) return;
-
-    // Snapshot current main canvas (old image) to fade canvas
-    fade.width = main.width;
-    fade.height = main.height;
-    fade.style.width = main.style.width;
-    fade.style.height = main.style.height;
-    const fadeCtx = fade.getContext("2d")!;
-    fadeCtx.clearRect(0, 0, fade.width, fade.height);
-    fadeCtx.drawImage(main, 0, 0);
-
-    // Show fade canvas instantly on top
-    fade.style.transition = "none";
-    fade.style.opacity = "1";
-
-    // Trigger fade-out on next frame
-    requestAnimationFrame(() => {
-      fade.style.transition = "opacity 0.4s ease";
-      fade.style.opacity = "0";
-    });
-  }, []);
-
   const slideshowAdvance = useCallback(() => {
     const imgs = imagesRef.current;
     if (imgs.length === 0) return;
-    doCrossfade();
+    startCrossfade();
     const newIndex = (currentIndexRef.current + 1) % imgs.length;
     currentIndexRef.current = newIndex;
     setCurrentIndex(newIndex);
@@ -688,7 +701,7 @@ function App() {
     imgH.current = 0;
     sourceImg.current = null;
     loadImage(imgs[newIndex], true);
-  }, [doCrossfade, loadImage]);
+  }, [startCrossfade, loadImage]);
 
   // Slideshow auto-advance
   useEffect(() => {
@@ -982,6 +995,7 @@ function App() {
         const step = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
         zoomToward(e.clientX, e.clientY, step);
       } else {
+        if (momentumRaf.current) { cancelAnimationFrame(momentumRaf.current); momentumRaf.current = 0; }
         const rect = imageAreaRef.current.getBoundingClientRect();
         const newX = panXRef.current - e.deltaX;
         const newY = panYRef.current - e.deltaY;
@@ -999,6 +1013,12 @@ function App() {
 
   const panHandlers = useRef({
     handlePointerDown(e: React.PointerEvent) {
+      // Cancel any ongoing momentum animation
+      if (momentumRaf.current) {
+        cancelAnimationFrame(momentumRaf.current);
+        momentumRaf.current = 0;
+      }
+      velocitySamples.current = [];
       e.preventDefault();
       isPanning.current = true;
       hasPanned.current = false;
@@ -1011,6 +1031,8 @@ function App() {
 
     handlePointerMove(e: React.PointerEvent) {
       if (!isPanning.current) return;
+      velocitySamples.current.push({ x: e.clientX, y: e.clientY, t: performance.now() });
+      if (velocitySamples.current.length > 8) velocitySamples.current.shift();
       const dx = e.clientX - panStart.current.x;
       const dy = e.clientY - panStart.current.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1032,6 +1054,46 @@ function App() {
       isPanning.current = false;
       hasPanned.current = false;
       setDragging(false);
+
+      // Start momentum from velocity samples
+      const samples = velocitySamples.current;
+      if (samples.length >= 2) {
+        const first = samples[0];
+        const last = samples[samples.length - 1];
+        const dt = last.t - first.t;
+        if (dt > 0) {
+          const vx = (last.x - first.x) / dt * 16;
+          const vy = (last.y - first.y) / dt * 16;
+          if (Math.abs(vx) >= 0.5 || Math.abs(vy) >= 0.5) {
+            const friction = 0.94;
+            const minVel = 0.15;
+            let velX = vx;
+            let velY = vy;
+            const tick = () => {
+              const el = imageAreaRef.current;
+              if (!el) return;
+              const rect = el.getBoundingClientRect();
+              const z = zoomRef.current;
+              const nx = panXRef.current + velX;
+              const ny = panYRef.current + velY;
+              const c = clampPan(nx, ny, z, imgW.current, imgH.current, rect.width, rect.height);
+              if (c.x !== nx) velX = 0;
+              if (c.y !== ny) velY = 0;
+              setPanX(c.x);
+              setPanY(c.y);
+              velX *= friction;
+              velY *= friction;
+              if (Math.abs(velX) > minVel || Math.abs(velY) > minVel) {
+                momentumRaf.current = requestAnimationFrame(tick);
+              } else {
+                momentumRaf.current = 0;
+              }
+            };
+            momentumRaf.current = requestAnimationFrame(tick);
+          }
+        }
+      }
+      velocitySamples.current = [];
     },
   }).current;
 
@@ -1316,6 +1378,16 @@ function App() {
     openFile, navigate, toggleSlideshow,
     toggleImmersive, toggleNativeFullscreen,
   ]);
+
+  // Cancel momentum on unmount
+  useEffect(() => {
+    return () => {
+      if (momentumRaf.current) {
+        cancelAnimationFrame(momentumRaf.current);
+        momentumRaf.current = 0;
+      }
+    };
+  }, []);
 
   const areaClass = "image-area" + (dragging ? " dragging" : imageUrl ? " grab" : "");
 
