@@ -883,6 +883,25 @@ html, body, #root {
   background: var(--bg-hover);
 }
 
+.status-zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease;
+}
+
+.status-zoom-btn:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
 .viewer.immersive .status-bar {
   display: none;
 }

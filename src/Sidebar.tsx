@@ -7,20 +7,9 @@ interface SubdirInfo {
   path: string;
 }
 
-const MIN_SIDEBAR_WIDTH = 140;
-const MAX_SIDEBAR_WIDTH = 500;
-const DEFAULT_SIDEBAR_WIDTH = 200;
-
-function loadStoredWidth(): number {
-  try {
-    const stored = localStorage.getItem("sidebar-width");
-    if (stored) {
-      const v = parseInt(stored, 10);
-      if (v >= MIN_SIDEBAR_WIDTH && v <= MAX_SIDEBAR_WIDTH) return v;
-    }
-  } catch { /* localStorage unavailable */ }
-  return DEFAULT_SIDEBAR_WIDTH;
-}
+export const MIN_SIDEBAR_WIDTH = 140;
+export const MAX_SIDEBAR_WIDTH = 500;
+export const DEFAULT_SIDEBAR_WIDTH = 200;
 
 interface ThumbnailItemProps {
   index: number;
@@ -56,6 +45,8 @@ interface SidebarProps {
   onNavigateUp: () => void;
   language: Language;
   recentFolders?: SubdirInfo[];
+  width: number;
+  onWidthChange: (width: number) => void;
 }
 
 function getFolderName(folderPath: string): string {
@@ -76,14 +67,17 @@ export default function Sidebar({
   onNavigateUp,
   language,
   recentFolders = [],
+  width,
+  onWidthChange,
 }: SidebarProps) {
   const activeRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const [sidebarWidth, setSidebarWidth] = useState(loadStoredWidth);
   const [recentCollapsed, setRecentCollapsed] = useState(false);
   const resizing = useRef(false);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
+  const widthRef = useRef(width);
+  widthRef.current = width;
 
   // Scroll to top when folder changes
   useEffect(() => {
@@ -102,29 +96,28 @@ export default function Sidebar({
     e.preventDefault();
     resizing.current = true;
     dragStartX.current = e.clientX;
-    dragStartWidth.current = sidebarWidth;
+    dragStartWidth.current = widthRef.current;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }, [sidebarWidth]);
+  }, []);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!resizing.current) return;
     const delta = e.clientX - dragStartX.current;
     const newWidth = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, dragStartWidth.current + delta));
-    setSidebarWidth(newWidth);
-  }, []);
+    onWidthChange(newWidth);
+  }, [onWidthChange]);
 
   const handlePointerUp = useCallback(() => {
     if (!resizing.current) return;
     resizing.current = false;
-    const finalWidth = sidebarWidth;
-    try { localStorage.setItem("sidebar-width", String(finalWidth)); } catch { /* ignore */ }
-  }, [sidebarWidth]);
+    try { localStorage.setItem("sidebar-width", String(widthRef.current)); } catch { /* ignore */ }
+  }, []);
 
   if (!visible) return null;
   if (images.length === 0 && !currentFolder && recentFolders.length === 0) return null;
 
   return (
-    <div className="sidebar" style={{ width: sidebarWidth }}>
+    <div className="sidebar" style={{ width }}>
       {recentFolders.length > 0 && (
         <div className={`recent-folders${!currentFolder ? " recent-folders--welcome" : ""}`}>
           <div
