@@ -196,6 +196,8 @@ function App() {
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const velocitySamples = useRef<{ x: number; y: number; t: number }[]>([]);
   const momentumRaf = useRef(0);
+  const crossfadeRaf = useRef(0);
+  const crossfadeGen = useRef(0);
   const imageAreaRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fadeCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -307,6 +309,13 @@ function App() {
     const fade = fadeCanvasRef.current;
     if (!main || !fade || main.width === 0) return;
 
+    // Cancel any pending fade-out from a previous navigation
+    crossfadeGen.current++;
+    if (crossfadeRaf.current) {
+      cancelAnimationFrame(crossfadeRaf.current);
+      crossfadeRaf.current = 0;
+    }
+
     fade.width = main.width;
     fade.height = main.height;
     fade.style.width = main.style.width;
@@ -322,7 +331,11 @@ function App() {
   const finishCrossfade = useCallback(() => {
     const fade = fadeCanvasRef.current;
     if (!fade) return;
-    requestAnimationFrame(() => {
+    const gen = crossfadeGen.current;
+    crossfadeRaf.current = requestAnimationFrame(() => {
+      crossfadeRaf.current = 0;
+      // Skip if a new startCrossfade happened since this was scheduled
+      if (crossfadeGen.current !== gen) return;
       if (!fadeCanvasRef.current) return;
       fadeCanvasRef.current.style.transition = "opacity 0.25s ease";
       fadeCanvasRef.current.style.opacity = "0";
@@ -1372,12 +1385,16 @@ function App() {
     toggleImmersive, toggleNativeFullscreen,
   ]);
 
-  // Cancel momentum on unmount
+  // Cancel animations on unmount
   useEffect(() => {
     return () => {
       if (momentumRaf.current) {
         cancelAnimationFrame(momentumRaf.current);
         momentumRaf.current = 0;
+      }
+      if (crossfadeRaf.current) {
+        cancelAnimationFrame(crossfadeRaf.current);
+        crossfadeRaf.current = 0;
       }
     };
   }, []);
