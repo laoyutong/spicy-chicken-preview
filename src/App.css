@@ -235,24 +235,42 @@ html, body, #root {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 3px;
-  background: var(--accent);
-  box-shadow: 0 0 8px var(--accent-glow);
+  height: 2px;
   z-index: 3;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.25s ease;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 .canvas-loading-bar.active {
-  animation: loading-slide 1.2s ease-in-out infinite;
   opacity: 1;
 }
 
+/* Animated shimmer that sweeps across */
+.canvas-loading-bar::after {
+  content: '';
+  display: block;
+  height: 100%;
+  width: 50%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--accent-dim) 25%,
+    var(--accent) 50%,
+    var(--accent-dim) 75%,
+    transparent 100%
+  );
+  will-change: transform;
+}
+
+.canvas-loading-bar.active::after {
+  animation: loading-slide 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 @keyframes loading-slide {
-  0%   { left: 0; width: 0; }
-  30%  { left: 0; width: 30%; }
-  70%  { left: 70%; width: 30%; }
-  100% { left: 100%; width: 0; }
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(300%); }
 }
 
 /* ── Empty / Error State ───────────────────────────────────────── */

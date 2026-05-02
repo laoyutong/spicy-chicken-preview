@@ -169,6 +169,7 @@ function App() {
   const [zoom, setZoom] = useState(1);
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
+  const [drawVersion, setDrawVersion] = useState(0);
   const [dragging, setDragging] = useState(false);
 
   // File info for status bar
@@ -283,8 +284,9 @@ function App() {
     ctx.drawImage(img, sL, sT, sW, sH, vL, vT, vW, vH);
   }, []);
 
-  // Redraw whenever zoom / pan / image / container changes
-  useEffect(() => { draw(); }, [zoom, panX, panY, imageUrl, draw]);
+  // Redraw on zoom/pan change or explicit draw trigger (image switch).
+  // drawVersion ensures a draw even when zoom/pan stay at default values.
+  useEffect(() => { draw(); }, [zoom, panX, panY, drawVersion, draw]);
 
   // Redraw on resize (container size changes) — rAF-batched
   useEffect(() => {
@@ -391,9 +393,8 @@ function App() {
         setImageUrl(url);
         setCurrentFile(filePath);
         setError(null);
-        if (reset) {
-          resetView();
-        }
+        // Delay resetView until new image is decoded — keeping the old
+        // image at its current zoom/pan prevents a visual jump.
 
         // Fetch file metadata in parallel with image loading
         const metadataPromise = invoke<{ size: number; extension: string }>(
@@ -409,7 +410,12 @@ function App() {
           imgW.current = cached.naturalWidth;
           imgH.current = cached.naturalHeight;
           setImageDimensions({ w: cached.naturalWidth, h: cached.naturalHeight });
-          draw();
+          if (reset) {
+            zoomRef.current = 1; panXRef.current = 0; panYRef.current = 0;
+            setZoom(1); setPanX(0); setPanY(0);
+          }
+          // Force draw even when zoom/pan are already at default values
+          setDrawVersion(v => v + 1);
           await metadataPromise;
           return;
         }
@@ -438,7 +444,12 @@ function App() {
         imgH.current = img.naturalHeight;
         setImageDimensions({ w: img.naturalWidth, h: img.naturalHeight });
         imageCache.current.set(filePath, img);
-        draw();
+        if (reset) {
+          zoomRef.current = 1; panXRef.current = 0; panYRef.current = 0;
+          setZoom(1); setPanX(0); setPanY(0);
+        }
+        // Force draw even when zoom/pan are already at default values
+        setDrawVersion(v => v + 1);
 
         await metadataPromise;
 
@@ -461,7 +472,7 @@ function App() {
         }
       }
     },
-    [resetView, draw, images, preloadAdjacent]
+    [draw, images, preloadAdjacent]
   );
 
   const addToRecentFolders = useCallback((folderPath: string) => {
@@ -571,7 +582,7 @@ function App() {
         loadDebounceRef.current = null;
       }
 
-      // Show loading indicator immediately for all navigations
+      // Show loading indicator immediately (needed for debounced loads)
       setLoading(true);
 
       // Cached images always load instantly

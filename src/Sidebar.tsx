@@ -88,7 +88,11 @@ export default function Sidebar({
 
   useEffect(() => {
     if (visible && activeRef.current) {
-      activeRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      const el = activeRef.current;
+      // Defer to next frame so layout-forcing scrollIntoView doesn't block the paint
+      requestAnimationFrame(() => {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
     }
   }, [currentIndex, visible]);
 
