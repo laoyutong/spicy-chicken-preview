@@ -199,6 +199,7 @@ function App() {
   const velocitySamples = useRef<{ x: number; y: number; t: number }[]>([]);
   const momentumRaf = useRef(0);
   const loadGen = useRef(0);
+  const pendingImgRef = useRef<HTMLImageElement | null>(null);
   const loadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadDebounceStartRef = useRef(0);
   const loadStartTimeRef = useRef(0);
@@ -385,6 +386,11 @@ function App() {
 
   const loadImage = useCallback(
     async (filePath: string, reset: boolean) => {
+      // Abort any in-flight image download from previous navigation
+      if (pendingImgRef.current) {
+        pendingImgRef.current.src = "";
+        pendingImgRef.current = null;
+      }
       const gen = ++loadGen.current;
       loadStartTimeRef.current = Date.now();
       setLoading(true);
@@ -422,6 +428,7 @@ function App() {
 
         // Load new image with async decoding — keep old sourceImg visible until ready
         const img = new Image();
+        pendingImgRef.current = img;
         img.decoding = "async";
         img.src = url;
 
@@ -430,6 +437,7 @@ function App() {
         } catch {
           // decode() rejects when the image is broken; onerror path handles it
           if (loadGen.current !== gen) return;
+          pendingImgRef.current = null;
           if (img.naturalWidth === 0) {
             setError("error.loadFailed");
             return;
@@ -439,6 +447,7 @@ function App() {
 
         if (loadGen.current !== gen) return;
 
+        pendingImgRef.current = null;
         sourceImg.current = img;
         imgW.current = img.naturalWidth;
         imgH.current = img.naturalHeight;
@@ -458,6 +467,7 @@ function App() {
         if (idx !== -1 && loadGen.current === gen) preloadAdjacent(idx);
       } catch {
         if (loadGen.current !== gen) return;
+        pendingImgRef.current = null;
         setError("error.loadFailed");
       } finally {
         if (loadGen.current === gen) {
@@ -1458,6 +1468,10 @@ function App() {
       if (loadDebounceRef.current) {
         clearTimeout(loadDebounceRef.current);
         loadDebounceRef.current = null;
+      }
+      if (pendingImgRef.current) {
+        pendingImgRef.current.src = "";
+        pendingImgRef.current = null;
       }
     };
   }, []);
