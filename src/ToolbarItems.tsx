@@ -152,7 +152,7 @@ function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
 function ToolbarCenterItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
   const { language, showCenter, currentIndex, imageCount, slideshowActive, slideshowMode, navigate, toggleSlideshow, cycleSlideshowMode } = params;
 
-  const modeLabel = slideshowMode === "reverse" ? "←" : slideshowMode === "shuffle" ? "⇄" : "→";
+  const modeLabel = slideshowMode === "shuffle" ? "⇄" : "→";
 
   return useMemo((): ToolbarItemDef[] => {
     const items: ToolbarItemDef[] = [];
@@ -226,13 +226,13 @@ function ToolbarCenterItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
     items.push({
       id: "slideshow-mode", section: "center", priority: 25, condition: showCenter && slideshowActive,
       renderToolbar: () => (
-        <button className="toolbar-btn" onClick={cycleSlideshowMode} title={slideshowMode === "forward" ? "Forward" : slideshowMode === "reverse" ? "Reverse" : "Shuffle"}>
+        <button className="toolbar-btn" onClick={cycleSlideshowMode} title={slideshowMode === "forward" ? "Forward" : "Shuffle"}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>{modeLabel}</span>
         </button>
       ),
       renderMenu: () => (
         <button className="toolbar-more-item" onClick={cycleSlideshowMode}>
-          {slideshowMode === "forward" ? "Forward" : slideshowMode === "reverse" ? "Reverse" : "Shuffle"}
+          {slideshowMode === "forward" ? "Forward" : "Shuffle"}
         </button>
       ),
     });

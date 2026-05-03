@@ -176,13 +176,35 @@ export default function Sidebar({
     };
   }, [currentFolder]);
 
+  // Keep a ref of display items so the scroll effect can locate the
+  // target index without adding displayItems to the dependency array.
+  const displayItemsRef = useRef(displayItems);
+  displayItemsRef.current = displayItems;
+
   useEffect(() => {
-    if (visible && activeRef.current) {
+    if (!visible) return;
+
+    if (activeRef.current) {
       const el = activeRef.current;
       requestAnimationFrame(() => {
         el.scrollIntoView({ behavior: "smooth", block: "nearest" });
       });
+      return;
     }
+
+    // Virtual scrolling: the target item is outside the rendered window.
+    // Estimate its position and jump-scroll so it gets rendered on the
+    // next paint (happens during shuffle slideshow or far jumps).
+    const listEl = listRef.current;
+    if (!listEl || itemCount <= 100) return;
+
+    const items = displayItemsRef.current;
+    const pos = items.findIndex((it) => it.originalIndex === currentIndex);
+    if (pos < 0) return;
+
+    const targetTop = pos * ITEM_HEIGHT - listEl.clientHeight / 2 + ITEM_HEIGHT / 2;
+    listEl.scrollTop = Math.max(0, targetTop);
+    setScrollTop(Math.max(0, targetTop));
   }, [currentIndex, visible]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {

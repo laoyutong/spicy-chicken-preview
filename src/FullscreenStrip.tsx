@@ -7,7 +7,7 @@ interface FullscreenStripProps {
   onSelect: (index: number) => void;
   slideshowActive: boolean;
   slideshowInterval: number;
-  slideshowMode: "forward" | "reverse" | "shuffle";
+  slideshowMode: "forward" | "shuffle";
   onToggleSlideshow: () => void;
   onCycleInterval: () => void;
   onCycleMode: () => void;
@@ -15,7 +15,6 @@ interface FullscreenStripProps {
 
 const MODE_ICONS: Record<string, string> = {
   forward: "→",
-  reverse: "←",
   shuffle: "⇄",
 };
 
@@ -149,7 +148,7 @@ export default function FullscreenStrip({
         <button
           className="fullscreen-strip-btn"
           onClick={onCycleMode}
-          title={slideshowMode === "forward" ? "Forward" : slideshowMode === "reverse" ? "Reverse" : "Shuffle"}
+          title={slideshowMode === "forward" ? "Forward" : "Shuffle"}
         >
           <span className="fullscreen-interval-label">{MODE_ICONS[slideshowMode]}</span>
         </button>

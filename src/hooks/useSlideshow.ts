@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, type MutableRefObject } from "react";
 
-export type SlideshowMode = "forward" | "reverse" | "shuffle";
+export type SlideshowMode = "forward" | "shuffle";
 
 interface UseSlideshowParams {
   imagesRef: MutableRefObject<string[]>;
@@ -52,11 +52,7 @@ export function useSlideshow({
   }, []);
 
   const cycleSlideshowMode = useCallback(() => {
-    setSlideshowMode((m) => {
-      if (m === "forward") return "reverse";
-      if (m === "reverse") return "shuffle";
-      return "forward";
-    });
+    setSlideshowMode((m) => (m === "forward" ? "shuffle" : "forward"));
   }, []);
 
   const toggleSlideshow = useCallback(() => {
@@ -86,8 +82,6 @@ export function useSlideshow({
       if (order.length === 0) {
         shuffleOrderRef.current = [];
       }
-    } else if (mode === "reverse") {
-      newIndex = (currentIndexRef.current - 1 + imgs.length) % imgs.length;
     } else {
       newIndex = (currentIndexRef.current + 1) % imgs.length;
     }
