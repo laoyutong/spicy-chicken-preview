@@ -234,6 +234,10 @@ function App() {
     const img = sourceImg.current;
     if (!canvas || !container || !img) return;
 
+    // During fullscreen transition, skip all canvas work — avoid
+    // forced layouts and style mutations while the window animates.
+    if (fullscreenTransitioningRef.current) return;
+
     const rect = container.getBoundingClientRect();
     const cw = rect.width;
     const ch = rect.height;
@@ -242,19 +246,6 @@ function App() {
     const dpr = window.devicePixelRatio || 1;
     const bw = Math.round(cw * dpr);
     const bh = Math.round(ch * dpr);
-    if (fullscreenTransitioningRef.current) {
-      const iw = imgW.current;
-      const ih = imgH.current;
-      if (iw > 0 && ih > 0) {
-        const { fw, fh } = getFittedSize(iw, ih, cw, ch);
-        canvas.style.width = fw + "px";
-        canvas.style.height = fh + "px";
-      } else {
-        canvas.style.width = cw + "px";
-        canvas.style.height = ch + "px";
-      }
-      return;
-    }
     if (canvas.width !== bw || canvas.height !== bh) {
       canvas.width = bw;
       canvas.height = bh;
@@ -336,11 +327,13 @@ function App() {
   // drawVersion ensures a draw even when zoom/pan stay at default values.
   useEffect(() => { draw(); }, [zoom, panX, panY, drawVersion, draw]);
 
-  // Redraw on resize (container size changes) — rAF-batched
+  // Redraw on resize (container size changes) — rAF-batched.
+  // Skip during fullscreen transition: the tauri://resize handler
+  // (or the double-rAF fallback) takes care of the final draw.
   useEffect(() => {
     let rafId = 0;
     const onResize = () => {
-      if (rafId) return;
+      if (rafId || fullscreenTransitioningRef.current) return;
       rafId = requestAnimationFrame(() => {
         rafId = 0;
         draw();

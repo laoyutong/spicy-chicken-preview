@@ -36,7 +36,7 @@ export function useFullscreen({ draw, fullscreenTransitioningRef }: UseFullscree
                 });
               });
             }
-          }, 200);
+          }, 80);
         });
         return unlisten;
       } catch (e) {
@@ -80,16 +80,17 @@ export function useFullscreen({ draw, fullscreenTransitioningRef }: UseFullscree
             const fs = await win.isFullscreen();
             if (!fs) {
               await win.setFullscreen(true);
-              setIsNativeFullscreen(true);
-            }
-            // Double rAF: wait for browser to paint the new layout before
-            // resizing the canvas buffer and redrawing at full resolution.
-            requestAnimationFrame(() => {
+              // tauri://resize handler will sync isNativeFullscreen, unlock, and redraw.
+            } else {
+              // Already fullscreen: no resize event will fire.
+              // Unlock after UI-hide layout change settles.
               requestAnimationFrame(() => {
-                fullscreenTransitioningRef.current = false;
-                draw();
+                requestAnimationFrame(() => {
+                  fullscreenTransitioningRef.current = false;
+                  draw();
+                });
               });
-            });
+            }
           } catch {
             fullscreenTransitioningRef.current = false;
           }
