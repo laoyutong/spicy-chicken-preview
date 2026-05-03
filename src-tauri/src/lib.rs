@@ -1,6 +1,4 @@
 use std::borrow::Cow;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::process::Command;
 use std::sync::{Condvar, Mutex};
@@ -42,45 +40,6 @@ struct FolderContents {
     subdirs: Vec<SubdirInfo>,
     images: Vec<String>,
     image_infos: Vec<ImageMeta>,
-}
-
-#[tauri::command]
-fn list_images_in_folder(file_path: &str) -> Result<Vec<String>, String> {
-    let path = Path::new(file_path);
-    let parent_dir = path
-        .parent()
-        .ok_or_else(|| "Cannot find parent directory".to_string())?;
-
-    let valid_extensions = [
-        "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "tiff", "tif",
-    ];
-
-    let mut images: Vec<String> = Vec::new();
-
-    let entries = std::fs::read_dir(parent_dir)
-        .map_err(|e| format!("Failed to read directory: {}", e))?;
-
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-        let entry_path = entry.path();
-
-        if entry_path.is_file() {
-            if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
-                if valid_extensions.contains(&ext.to_lowercase().as_str()) {
-                    images.push(entry_path.to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-
-    // Sort by filename for consistent navigation order
-    images.sort_by(|a, b| {
-        let a_name = Path::new(a).file_name().map(|n| n.to_string_lossy().to_lowercase());
-        let b_name = Path::new(b).file_name().map(|n| n.to_string_lossy().to_lowercase());
-        a_name.cmp(&b_name)
-    });
-
-    Ok(images)
 }
 
 #[tauri::command]
@@ -206,30 +165,63 @@ struct ImageDimensions {
 
 #[tauri::command]
 fn get_images_dimensions(file_paths: Vec<String>) -> Result<Vec<ImageDimensions>, String> {
-    let mut results = Vec::new();
-    for path_str in file_paths {
-        let path = Path::new(&path_str);
-        // Try reading image header with the image crate
-        if let Ok(reader) = image::ImageReader::open(path) {
-            if let Ok(reader) = reader.with_guessed_format() {
-                if let Ok(dimensions) = reader.into_dimensions() {
-                    results.push(ImageDimensions {
-                        path: path_str,
-                        width: dimensions.0,
-                        height: dimensions.1,
-                    });
-                    continue;
-                }
-            }
-        }
-        // Fallback: return 0x0 for images we can't read (e.g. SVG)
-        results.push(ImageDimensions {
-            path: path_str,
-            width: 0,
-            height: 0,
-        });
+    if file_paths.is_empty() {
+        return Ok(Vec::new());
     }
-    Ok(results)
+
+    let paths: std::sync::Arc<[String]> = std::sync::Arc::from(file_paths.into_boxed_slice());
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(paths.len());
+
+    let chunk_size = (paths.len() + num_threads - 1) / num_threads;
+
+    std::thread::scope(|s| {
+        let mut handles = Vec::with_capacity(num_threads);
+
+        for t in 0..num_threads {
+            let paths = std::sync::Arc::clone(&paths);
+            let start = t * chunk_size;
+            let end = ((t + 1) * chunk_size).min(paths.len());
+            if start >= end {
+                break;
+            }
+            handles.push((start, s.spawn(move || {
+                let mut results = Vec::with_capacity(end - start);
+                for idx in start..end {
+                    let path_str = &paths[idx];
+                    let path = Path::new(path_str);
+                    if let Ok(reader) = image::ImageReader::open(path) {
+                        if let Ok(reader) = reader.with_guessed_format() {
+                            if let Ok(dimensions) = reader.into_dimensions() {
+                                results.push(ImageDimensions {
+                                    path: path_str.clone(),
+                                    width: dimensions.0,
+                                    height: dimensions.1,
+                                });
+                                continue;
+                            }
+                        }
+                    }
+                    results.push(ImageDimensions {
+                        path: path_str.clone(),
+                        width: 0,
+                        height: 0,
+                    });
+                }
+                results
+            })));
+        }
+
+        // Sort handles by start index to preserve original order
+        handles.sort_by_key(|(start, _)| *start);
+        let mut all_results = Vec::with_capacity(paths.len());
+        for (_, handle) in handles {
+            all_results.extend(handle.join().unwrap());
+        }
+        Ok(all_results)
+    })
 }
 
 #[tauri::command]
@@ -275,10 +267,8 @@ fn get_thumbnail(app: tauri::AppHandle, file_path: &str, max_size: u32) -> Resul
     std::fs::create_dir_all(&cache_dir)
         .map_err(|e| format!("Failed to create cache dir: {}", e))?;
 
-    // Hash the file path to create a stable cache key
-    let mut hasher = DefaultHasher::new();
-    file_path.hash(&mut hasher);
-    let hash = hasher.finish();
+    // Hash the file path to create a stable cache key (xxh3 is stable across Rust versions)
+    let hash = xxhash_rust::xxh3::xxh3_64(file_path.as_bytes());
     let cache_file = cache_dir.join(format!("{:x}_{}.jpg", hash, max_size));
 
     // Return cached thumbnail path if it already exists
@@ -381,7 +371,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            list_images_in_folder,
             list_folder_contents,
             get_file_info,
             get_pending_file,

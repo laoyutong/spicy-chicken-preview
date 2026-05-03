@@ -4,12 +4,28 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 
 export const THUMBNAIL_SIZE = 128;
 
+const MAX_THUMBNAIL_PATH_CACHE = 200;
+
 const thumbnailPathCache = new Map<string, string>();
 const pendingRequests = new Map<string, Promise<string>>();
 
+function cacheThumbnailPath(filePath: string, cachePath: string): void {
+  // Evict oldest entry if at capacity (Map preserves insertion order)
+  if (thumbnailPathCache.size >= MAX_THUMBNAIL_PATH_CACHE) {
+    const oldest = thumbnailPathCache.keys().next().value;
+    if (oldest !== undefined) thumbnailPathCache.delete(oldest);
+  }
+  thumbnailPathCache.set(filePath, cachePath);
+}
+
 export async function loadThumbnailPath(filePath: string): Promise<string> {
   const cached = thumbnailPathCache.get(filePath);
-  if (cached) return cached;
+  if (cached) {
+    // Move to end to mark as recently used
+    thumbnailPathCache.delete(filePath);
+    thumbnailPathCache.set(filePath, cached);
+    return cached;
+  }
 
   const pending = pendingRequests.get(filePath);
   if (pending) return pending;
@@ -18,7 +34,7 @@ export async function loadThumbnailPath(filePath: string): Promise<string> {
     filePath,
     maxSize: THUMBNAIL_SIZE,
   }).then((cachePath) => {
-    thumbnailPathCache.set(filePath, cachePath);
+    cacheThumbnailPath(filePath, cachePath);
     pendingRequests.delete(filePath);
     return cachePath;
   }).catch((err) => {

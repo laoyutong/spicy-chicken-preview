@@ -1,8 +1,7 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"; // eslint-disable-line
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open } from "@tauri-apps/plugin-dialog";
 import Sidebar, { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH } from "./Sidebar";
 import FullscreenStrip from "./FullscreenStrip";
@@ -10,6 +9,8 @@ import { loadLanguage, t, translate, type Language } from "./i18n";
 import { Toolbar, type ToolbarItemDef } from "./Toolbar";
 import { LRUImageCache } from "./lruImageCache";
 import SettingsModal from "./SettingsModal";
+import { useSlideshow } from "./hooks/useSlideshow";
+import { useFullscreen } from "./hooks/useFullscreen";
 import "./App.css";
 import "./Toolbar.css";
 
@@ -118,6 +119,8 @@ function sortImagePaths(
   mode: SortMode, order: "asc" | "desc",
   metaMap: Map<string, ImageMetaRecord>,
 ): string[] {
+  // Fast-path: backend already sorts by filename ascending
+  if (mode === "name" && order === "asc") return paths;
   return [...paths].sort((a, b) => comparePaths(a, b, mode, order, metaMap));
 }
 
@@ -154,10 +157,6 @@ function App() {
   });
   const [theme, setTheme] = useState<"dark" | "light">(loadTheme);
   const [language, setLanguage] = useState<Language>(loadLanguage);
-  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
-  const [isImmersive, setIsImmersive] = useState(false);
-  const [slideshowActive, setSlideshowActive] = useState(false);
-  const [slideshowInterval, setSlideshowInterval] = useState(3);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [loading, setLoading] = useState(false);
@@ -234,9 +233,19 @@ function App() {
     const bw = Math.round(cw * dpr);
     const bh = Math.round(ch * dpr);
     if (fullscreenTransitioningRef.current) {
-      // During fullscreen animation, only CSS-scale — avoid buffer reallocation jank
-      canvas.style.width = cw + "px";
-      canvas.style.height = ch + "px";
+      // During fullscreen transition, CSS-scale the canvas to the fitted size
+      // (matching image aspect ratio) instead of filling the container.
+      // This prevents stretching while avoiding buffer reallocation jank.
+      const iw = imgW.current;
+      const ih = imgH.current;
+      if (iw > 0 && ih > 0) {
+        const { fw, fh } = getFittedSize(iw, ih, cw, ch);
+        canvas.style.width = fw + "px";
+        canvas.style.height = fh + "px";
+      } else {
+        canvas.style.width = cw + "px";
+        canvas.style.height = ch + "px";
+      }
       return;
     }
     if (canvas.width !== bw || canvas.height !== bh) {
@@ -284,6 +293,13 @@ function App() {
 
     ctx.drawImage(img, sL, sT, sW, sH, vL, vT, vW, vH);
   }, []);
+
+  // ── Fullscreen ─────────────────────────────────────────────────
+  const {
+    isNativeFullscreen,
+    isImmersive, setIsImmersive,
+    toggleNativeFullscreen, toggleImmersive,
+  } = useFullscreen({ draw, fullscreenTransitioningRef });
 
   // Redraw on zoom/pan change or explicit draw trigger (image switch).
   // drawVersion ensures a draw even when zoom/pan stay at default values.
@@ -484,6 +500,20 @@ function App() {
     },
     [draw, images, preloadAdjacent]
   );
+
+  // ── Slideshow ─────────────────────────────────────────────────
+  const {
+    slideshowActive, setSlideshowActive,
+    slideshowInterval, setSlideshowInterval,
+    toggleSlideshow, cycleSlideshowInterval,
+  } = useSlideshow({
+    imagesRef,
+    currentIndexRef,
+    imageCount: images.length,
+    setCurrentIndex,
+    loadImage,
+    preloadAdjacent,
+  });
 
   const addToRecentFolders = useCallback((folderPath: string) => {
     const name = folderPath.replace(/\\/g, "/").split("/").filter(Boolean).pop() || folderPath;
@@ -748,115 +778,6 @@ function App() {
 
     return () => { cancelled = true; };
   }, [sortBy, images.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const slideshowAdvance = useCallback(() => {
-    const imgs = imagesRef.current;
-    if (imgs.length === 0) return;
-    const newIndex = (currentIndexRef.current + 1) % imgs.length;
-    currentIndexRef.current = newIndex;
-    setCurrentIndex(newIndex);
-    preloadAdjacent(newIndex);
-    loadImage(imgs[newIndex], true);
-  }, [loadImage, preloadAdjacent]);
-
-  // Slideshow auto-advance
-  useEffect(() => {
-    if (!slideshowActive || images.length === 0) return;
-    const timer = setInterval(() => {
-      slideshowAdvance();
-    }, slideshowInterval * 1000);
-    return () => clearInterval(timer);
-  }, [slideshowActive, slideshowInterval, images.length, slideshowAdvance]);
-
-  // Sync fullscreen state with Tauri native window
-  useEffect(() => {
-    const win = getCurrentWebviewWindow();
-    const setup = async () => {
-      try {
-        // Check initial fullscreen state on load
-        const initial = await win.isFullscreen();
-        setIsNativeFullscreen(initial);
-        let lastFullscreen = initial;
-
-        // Listen for state changes (e.g., via native green button)
-        let resizeTimer: ReturnType<typeof setTimeout> | null = null;
-        const unlisten = await win.listen("tauri://resize", async () => {
-          if (resizeTimer) return;
-          resizeTimer = setTimeout(async () => {
-            resizeTimer = null;
-            const fs = await win.isFullscreen();
-            if (fs !== lastFullscreen) {
-              lastFullscreen = fs;
-              fullscreenTransitioningRef.current = true;
-              setIsNativeFullscreen(fs);
-              setTimeout(() => {
-                fullscreenTransitioningRef.current = false;
-                draw();
-              }, 600);
-            }
-          }, 200);
-        });
-        return unlisten;
-      } catch (e) {
-        console.error("Fullscreen setup error:", e);
-      }
-    };
-    const promise = setup();
-    return () => {
-      promise.then((unlisten) => unlisten?.());
-    };
-  }, []);
-
-  const toggleNativeFullscreen = useCallback(async () => {
-    try {
-      const win = getCurrentWebviewWindow();
-      const current = await win.isFullscreen();
-      fullscreenTransitioningRef.current = true;
-      await win.setFullscreen(!current);
-      setIsNativeFullscreen(!current);
-      setTimeout(() => {
-        fullscreenTransitioningRef.current = false;
-        draw();
-      }, 600);
-    } catch (e) {
-      console.error("Toggle fullscreen error:", e);
-    }
-  }, []);
-
-  const toggleImmersive = useCallback(() => {
-    setIsImmersive((v) => {
-      const next = !v;
-      if (next) {
-        // Entering immersive → also enter native fullscreen if not already
-        (async () => {
-          try {
-            const win = getCurrentWebviewWindow();
-            const fs = await win.isFullscreen();
-            if (!fs) {
-              fullscreenTransitioningRef.current = true;
-              await win.setFullscreen(true);
-              setIsNativeFullscreen(true);
-              setTimeout(() => {
-                fullscreenTransitioningRef.current = false;
-                draw();
-              }, 600);
-            }
-          } catch { /* ignore */ }
-        })();
-      }
-      return next;
-    });
-  }, []);
-
-  const cycleSlideshowInterval = useCallback(() => {
-    const intervals = [2, 3, 5, 10];
-    const idx = intervals.indexOf(slideshowInterval);
-    setSlideshowInterval(intervals[(idx + 1) % intervals.length]);
-  }, [slideshowInterval]);
-
-  const toggleSlideshow = useCallback(() => {
-    setSlideshowActive((a) => !a);
-  }, []);
 
   // ── Context Menu ─────────────────────────────────────────────────
 
@@ -1178,9 +1099,11 @@ function App() {
 
   const handleDoubleClick = () => toggleImmersive();
 
-  const fileName = currentFile
-    ? currentFile.split(/[/\\]/).pop() || currentFile
-    : "";
+  const fileName = useMemo(() => {
+    return currentFile
+      ? currentFile.split(/[/\\]/).pop() || currentFile
+      : "";
+  }, [currentFile]);
 
   // ── Breadcrumb segments ──────────────────────────────────────────
 
@@ -1212,12 +1135,12 @@ function App() {
     if (overflowIds.has("sort-controls")) setSortDropdownOpen(false);
   }, []);
 
-  const toolbarItems = useMemo((): ToolbarItemDef[] => {
-    const items: ToolbarItemDef[] = [];
-    const showExtras = images.length > 0 || !!currentFolder;
-    const showCenter = images.length > 1;
+  // ── Toolbar items (split by section for granular memoization) ────
+  const showExtras = images.length > 0 || !!currentFolder;
+  const showCenter = images.length > 1;
 
-    /* ── Left section ─────────────────────────────────────── */
+  const leftToolbarItems = useMemo((): ToolbarItemDef[] => {
+    const items: ToolbarItemDef[] = [];
 
     items.push({
       id: "open", section: "left", priority: 0, condition: true,
@@ -1323,7 +1246,11 @@ function App() {
       renderMenu: () => <span className="toolbar-more-label">{fileName}</span>,
     });
 
-    /* ── Center section ────────────────────────────────────── */
+    return items;
+  }, [language, showExtras, sidebarVisible, fileName, sortBy, sortOrder, sortDropdownOpen, openFile]);
+
+  const centerToolbarItems = useMemo((): ToolbarItemDef[] => {
+    const items: ToolbarItemDef[] = [];
 
     items.push({
       id: "prev", section: "center", priority: 0, condition: showCenter,
@@ -1391,7 +1318,11 @@ function App() {
       ),
     });
 
-    /* ── Right section ────────────────────────────────────── */
+    return items;
+  }, [language, showCenter, currentIndex, images.length, slideshowActive, navigate, toggleSlideshow]);
+
+  const rightToolbarItems = useMemo((): ToolbarItemDef[] => {
+    const items: ToolbarItemDef[] = [];
 
     items.push({
       id: "settings", section: "right", priority: 8, condition: true,
@@ -1443,20 +1374,12 @@ function App() {
     });
 
     return items;
-  }, [
-    language,
-    images.length, currentFolder,
-    sidebarVisible,
-    fileName,
-    sortBy, sortOrder, sortDropdownOpen,
-    isImmersive, isNativeFullscreen,
-    imageUrl,
-    slideshowActive,
-    currentIndex,
-    settingsOpen,
-    openFile, navigate, toggleSlideshow,
-    toggleImmersive, toggleNativeFullscreen,
-  ]);
+  }, [language, settingsOpen, isImmersive, toggleImmersive, toggleNativeFullscreen]);
+
+  const toolbarItems = useMemo(
+    () => [...leftToolbarItems, ...centerToolbarItems, ...rightToolbarItems],
+    [leftToolbarItems, centerToolbarItems, rightToolbarItems],
+  );
 
   // Cancel animations and timers on unmount
   useEffect(() => {

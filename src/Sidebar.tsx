@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { t, type Language } from "./i18n";
 import { CachedThumbnail } from "./thumbnailCache";
 
@@ -19,7 +19,7 @@ interface ThumbnailItemProps {
 }
 
 function ThumbnailItem({ index, filePath, isActive, onSelect }: ThumbnailItemProps) {
-  const fileName = filePath.split(/[/\\]/).pop() || filePath;
+  const fileName = useMemo(() => filePath.split(/[/\\]/).pop() || filePath, [filePath]);
 
   return (
     <div

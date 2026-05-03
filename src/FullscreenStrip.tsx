@@ -1,4 +1,4 @@
-import { useRef, useEffect, useLayoutEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
 import { CachedThumbnail } from "./thumbnailCache";
 
 interface FullscreenStripProps {
@@ -86,6 +86,11 @@ export default function FullscreenStrip({
     return () => window.removeEventListener("mousemove", handleMouseMove);
   }, [resetHideTimer]);
 
+  const fileNames = useMemo(
+    () => images.map((p) => p.split(/[/\\]/).pop() || p),
+    [images],
+  );
+
   if (images.length === 0) return null;
 
   return (
@@ -102,7 +107,7 @@ export default function FullscreenStrip({
     >
       <div className="fullscreen-strip-list" ref={stripRef}>
         {images.map((filePath, index) => {
-          const fileName = filePath.split(/[/\\]/).pop() || filePath;
+          const fileName = fileNames[index];
           return (
             <div
               key={filePath}
