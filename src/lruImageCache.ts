@@ -13,6 +13,7 @@ const MAX_MEMORY_MB = 300; // ~4 bytes/pixel, so ~75 megapixels
 export class LRUImageCache {
   private map = new Map<string, CacheEntry>();
   private totalPixels = 0;
+  private loading = new Set<string>();
 
   get(key: string): HTMLImageElement | undefined {
     const entry = this.map.get(key);
@@ -24,6 +25,7 @@ export class LRUImageCache {
   }
 
   set(key: string, img: HTMLImageElement): void {
+    this.loading.delete(key);
     const pixels = img.naturalWidth * img.naturalHeight;
     const existing = this.map.get(key);
 
@@ -42,7 +44,27 @@ export class LRUImageCache {
     return this.map.has(key);
   }
 
+  /** Check if a full image is cached (complete + has dimensions). */
+  hasLoaded(key: string): boolean {
+    const entry = this.map.get(key);
+    if (!entry) return false;
+    return entry.img.complete && entry.img.naturalWidth > 0;
+  }
+
+  /** Track a key as currently loading. Returns false if already loading or cached. */
+  markLoading(key: string): boolean {
+    if (this.map.has(key) || this.loading.has(key)) return false;
+    this.loading.add(key);
+    return true;
+  }
+
+  /** Remove a key from the loading set (e.g. on load error). */
+  unmarkLoading(key: string): void {
+    this.loading.delete(key);
+  }
+
   delete(key: string): boolean {
+    this.loading.delete(key);
     const entry = this.map.get(key);
     if (entry) {
       this.totalPixels -= entry.pixels;
@@ -54,6 +76,7 @@ export class LRUImageCache {
   clear(): void {
     this.map.clear();
     this.totalPixels = 0;
+    this.loading.clear();
   }
 
   get size(): number {
@@ -63,7 +86,6 @@ export class LRUImageCache {
   private evict(): void {
     const maxPixels = MAX_MEMORY_MB * 250_000; // ~250K pixels per MB at 4 bytes/pixel
 
-    // Evict oldest entries first (head of insertion-ordered Map)
     while (this.map.size > MAX_ENTRIES || this.totalPixels > maxPixels) {
       const oldestKey = this.map.keys().next().value;
       if (oldestKey === undefined) break;

@@ -6,11 +6,13 @@ import { open } from "@tauri-apps/plugin-dialog";
 import Sidebar, { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH } from "./Sidebar";
 import FullscreenStrip from "./FullscreenStrip";
 import { loadLanguage, t, translate, type Language } from "./i18n";
-import { Toolbar, type ToolbarItemDef } from "./Toolbar";
+import { Toolbar } from "./Toolbar";
+import { useToolbarItems } from "./ToolbarItems";
 import { LRUImageCache } from "./lruImageCache";
 import SettingsModal from "./SettingsModal";
 import { useSlideshow } from "./hooks/useSlideshow";
 import { useFullscreen } from "./hooks/useFullscreen";
+import { useWindowState } from "./hooks/useWindowState";
 import "./App.css";
 import "./Toolbar.css";
 
@@ -62,7 +64,7 @@ interface ImageMeta {
   modified: number;
 }
 
-type SortMode = "name" | "dimensions" | "aspect-ratio" | "modified";
+export type SortMode = "name" | "dimensions" | "aspect-ratio" | "modified";
 
 interface ImageMetaRecord {
   size: number;
@@ -127,9 +129,13 @@ function sortImagePaths(
 function clampPan(
   px: number, py: number, zoomVal: number,
   imgW: number, imgH: number, cw: number, ch: number,
+  rotation: number = 0,
 ): { x: number; y: number } {
   if (imgW <= 0 || imgH <= 0 || cw <= 0 || ch <= 0) return { x: 0, y: 0 };
-  const { fw, fh } = getFittedSize(imgW, imgH, cw, ch);
+  const isSwapped = rotation === 90 || rotation === 270;
+  const ew = isSwapped ? imgH : imgW;
+  const eh = isSwapped ? imgW : imgH;
+  const { fw, fh } = getFittedSize(ew, eh, cw, ch);
   const sw = fw * zoomVal;
   const sh = fh * zoomVal;
   const maxX = Math.abs(sw - cw) / 2;
@@ -170,6 +176,7 @@ function App() {
   const [panY, setPanY] = useState(0);
   const [drawVersion, setDrawVersion] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [rotation, setRotation] = useState(0); // 0, 90, 180, 270
 
   // File info for status bar
   const [imageDimensions, setImageDimensions] = useState<{ w: number; h: number } | null>(null);
@@ -185,10 +192,12 @@ function App() {
   const sortDropdownRef = useRef<HTMLDivElement>(null);
   const breadcrumbRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
 
   const zoomRef = useRef(zoom);
   const panXRef = useRef(panX);
   const panYRef = useRef(panY);
+  const rotationRef = useRef(rotation);
   const imgW = useRef(0);
   const imgH = useRef(0);
   const sourceImg = useRef<HTMLImageElement | null>(null);
@@ -209,6 +218,7 @@ function App() {
   useEffect(() => { zoomRef.current = zoom; }, [zoom]);
   useEffect(() => { panXRef.current = panX; }, [panX]);
   useEffect(() => { panYRef.current = panY; }, [panY]);
+  useEffect(() => { rotationRef.current = rotation; }, [rotation]);
 
   // Refs for slideshow auto-advance (avoid stale closures in setInterval)
   const imagesRef = useRef(images);
@@ -233,9 +243,6 @@ function App() {
     const bw = Math.round(cw * dpr);
     const bh = Math.round(ch * dpr);
     if (fullscreenTransitioningRef.current) {
-      // During fullscreen transition, CSS-scale the canvas to the fitted size
-      // (matching image aspect ratio) instead of filling the container.
-      // This prevents stretching while avoiding buffer reallocation jank.
       const iw = imgW.current;
       const ih = imgH.current;
       if (iw > 0 && ih > 0) {
@@ -267,8 +274,22 @@ function App() {
     const z = zoomRef.current;
     const px = panXRef.current;
     const py = panYRef.current;
+    const rot = rotation;
 
-    const { fw, fh } = getFittedSize(iw, ih, cw, ch);
+    // Effective dimensions after rotation
+    const isSwapped = rot === 90 || rot === 270;
+    const ew = isSwapped ? ih : iw;
+    const eh = isSwapped ? iw : ih;
+
+    // Apply rotation around container center
+    if (rot !== 0) {
+      ctx.save();
+      ctx.translate(cw / 2, ch / 2);
+      ctx.rotate((rot * Math.PI) / 180);
+      ctx.translate(-cw / 2, -ch / 2);
+    }
+
+    const { fw, fh } = getFittedSize(ew, eh, cw, ch);
     const sw = fw * z;
     const sh = fh * z;
 
@@ -276,23 +297,30 @@ function App() {
     const imgLeft = cw / 2 - sw / 2 + px;
     const imgTop = ch / 2 - sh / 2 + py;
 
-    // Clipped visible rectangle in viewport
-    const vL = Math.max(0, imgLeft);
-    const vT = Math.max(0, imgTop);
-    const vR = Math.min(cw, imgLeft + sw);
-    const vB = Math.min(ch, imgTop + sh);
-    const vW = vR - vL;
-    const vH = vB - vT;
-    if (vW <= 0 || vH <= 0) return;
+    if (rot === 0 || rot === 180) {
+      // Clipped visible rectangle in viewport
+      const vL = Math.max(0, imgLeft);
+      const vT = Math.max(0, imgTop);
+      const vR = Math.min(cw, imgLeft + sw);
+      const vB = Math.min(ch, imgTop + sh);
+      const vW = vR - vL;
+      const vH = vB - vT;
+      if (vW > 0 && vH > 0) {
+        const sL = (vL - imgLeft) / sw * iw;
+        const sT = (vT - imgTop) / sh * ih;
+        const sW = vW / sw * iw;
+        const sH = vH / sh * ih;
+        ctx.drawImage(img, sL, sT, sW, sH, vL, vT, vW, vH);
+      }
+    } else {
+      // For 90/270, draw the full image using canvas transform (no sub-rect clipping needed)
+      ctx.drawImage(img, imgLeft, imgTop, sw, sh);
+    }
 
-    // Map visible rectangle back to source-image coordinates
-    const sL = (vL - imgLeft) / sw * iw;
-    const sT = (vT - imgTop) / sh * ih;
-    const sW = vW / sw * iw;
-    const sH = vH / sh * ih;
-
-    ctx.drawImage(img, sL, sT, sW, sH, vL, vT, vW, vH);
-  }, []);
+    if (rot !== 0) {
+      ctx.restore();
+    }
+  }, [rotation]);
 
   // ── Fullscreen ─────────────────────────────────────────────────
   const {
@@ -300,6 +328,9 @@ function App() {
     isImmersive, setIsImmersive,
     toggleNativeFullscreen, toggleImmersive,
   } = useFullscreen({ draw, fullscreenTransitioningRef });
+
+  // Persist window position/size
+  useWindowState();
 
   // Redraw on zoom/pan change or explicit draw trigger (image switch).
   // drawVersion ensures a draw even when zoom/pan stay at default values.
@@ -342,7 +373,7 @@ function App() {
     const newPx = (cx - cw / 2) * (1 - ratio) + px * ratio;
     const newPy = (cy - ch / 2) * (1 - ratio) + py * ratio;
 
-    const c = clampPan(newPx, newPy, newZ, imgW.current, imgH.current, cw, ch);
+    const c = clampPan(newPx, newPy, newZ, imgW.current, imgH.current, cw, ch, rotationRef.current);
     setZoom(newZ);
     setPanX(c.x);
     setPanY(c.y);
@@ -368,11 +399,18 @@ function App() {
       const preloadOne = (i: number) => {
         if (i >= 0 && i < images.length) {
           const path = images[i];
-          if (!imageCache.current.has(path)) {
+          if (imageCache.current.markLoading(path)) {
             const img = new Image();
             img.decoding = "async";
+            img.onload = () => {
+              img.onload = null; img.onerror = null;
+              imageCache.current.set(path, img);
+            };
+            img.onerror = () => {
+              img.onload = null; img.onerror = null;
+              imageCache.current.unmarkLoading(path);
+            };
             img.src = convertFileSrc(path);
-            imageCache.current.set(path, img);
           }
         }
       };
@@ -505,6 +543,7 @@ function App() {
   const {
     slideshowActive, setSlideshowActive,
     slideshowInterval, setSlideshowInterval,
+    slideshowMode, cycleSlideshowMode,
     toggleSlideshow, cycleSlideshowInterval,
   } = useSlideshow({
     imagesRef,
@@ -551,28 +590,33 @@ function App() {
           });
         }
 
-        // Fetch dimensions upfront if sorting by dimensions or aspect-ratio
-        if ((sortBy === "dimensions" || sortBy === "aspect-ratio") && result.images.length > 0) {
-          try {
-            const dims: { path: string; width: number; height: number }[] =
-              await invoke("get_images_dimensions", { filePaths: result.images });
-            for (const d of dims) {
-              const existing = metaMap.get(d.path);
-              if (existing) {
-                existing.width = d.width;
-                existing.height = d.height;
-              }
-            }
-          } catch { /* ignore — dimensions won't be available */ }
-        }
-
         imageMetaMapRef.current = metaMap;
 
-        // Sort images by current sort criteria
+        // Sort images by current sort criteria (unknown dimensions = 0, sort to end)
         const sorted = sortImagePaths(result.images, sortBy, sortOrder, metaMap);
         setImages(sorted);
 
         if (sorted.length > 0) addToRecentFolders(folderPath);
+
+        // For dimension-dependent sorts, load dimensions in background after first image is shown
+        if ((sortBy === "dimensions" || sortBy === "aspect-ratio") && sorted.length > 0) {
+          const imagesToMeasure = sorted;
+          invoke<{ path: string; width: number; height: number }[]>(
+            "get_images_dimensions", { filePaths: imagesToMeasure },
+          ).then((dims) => {
+            const map = imageMetaMapRef.current;
+            let hasNew = false;
+            for (const d of dims) {
+              const existing = map.get(d.path);
+              if (existing && existing.width === undefined) {
+                existing.width = d.width;
+                existing.height = d.height;
+                hasNew = true;
+              }
+            }
+            if (hasNew) setMetaVersion((v) => v + 1);
+          }).catch(() => {});
+        }
 
         if (selectFile && sorted.includes(selectFile)) {
           const idx = sorted.indexOf(selectFile);
@@ -859,6 +903,44 @@ function App() {
     loadImage(newImages[newIdx], true);
   }, [currentFile, loadImage]);
 
+  const handleBatchDelete = useCallback(async () => {
+    if (selectedIndices.size === 0) return;
+    const imgs = imagesRef.current;
+    const toDelete = [...selectedIndices].sort((a, b) => b - a); // Remove from end to preserve indices
+    let hadErrors = false;
+    for (const idx of toDelete) {
+      if (idx < 0 || idx >= imgs.length) continue;
+      const path = imgs[idx];
+      try {
+        await invoke("move_to_trash", { filePath: path });
+      } catch {
+        hadErrors = true;
+        continue;
+      }
+      imageMetaMapRef.current.delete(path);
+      imageCache.current.delete(path);
+    }
+    setSelectedIndices(new Set());
+    if (hadErrors) return;
+
+    const remaining = imgs.filter((_, i) => !selectedIndices.has(i));
+    if (remaining.length === 0) {
+      setImages([]);
+      setCurrentIndex(0);
+      setImageUrl(null);
+      setCurrentFile(null);
+      sourceImg.current = null;
+      return;
+    }
+    const currentPath = currentFile;
+    let newIdx = remaining.indexOf(currentPath!);
+    if (newIdx < 0) newIdx = Math.min(currentIndexRef.current, remaining.length - 1);
+    setImages(remaining);
+    setCurrentIndex(newIdx);
+    imgW.current = 0; imgH.current = 0; sourceImg.current = null;
+    loadImage(remaining[newIdx], true);
+  }, [selectedIndices, currentFile, loadImage]);
+
   // Close context menu on outside interaction
   useEffect(() => {
     if (!contextMenu) return;
@@ -930,6 +1012,20 @@ function App() {
         // F: toggle native window fullscreen
         e.preventDefault();
         toggleNativeFullscreen();
+      } else if ((e.key === "c" || e.key === "C") && (e.metaKey || e.ctrlKey)) {
+        // Cmd/Ctrl+C: copy image to clipboard
+        e.preventDefault();
+        copyImage();
+      } else if ((e.key === "r" || e.key === "R") && !(e.metaKey || e.ctrlKey || e.shiftKey)) {
+        // R: rotate clockwise 90°
+        e.preventDefault();
+        setRotation((r) => (r + 90) % 360);
+        resetView();
+      } else if ((e.key === "R") && e.shiftKey) {
+        // Shift+R: rotate counterclockwise 90°
+        e.preventDefault();
+        setRotation((r) => (r + 270) % 360);
+        resetView();
       } else if (e.key === "Delete" || e.key === "Backspace") {
         // Delete/Backspace: move to trash
         e.preventDefault();
@@ -938,7 +1034,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, resetView, zoomToward, toggleNativeFullscreen, isImmersive, settingsOpen, imageUrl, handleMoveToTrash]);
+  }, [navigate, resetView, zoomToward, toggleNativeFullscreen, isImmersive, settingsOpen, imageUrl, handleMoveToTrash, copyImage]);
 
   const loadOpenedFile = useCallback(
     async (filePath: string) => {
@@ -999,7 +1095,7 @@ function App() {
         const rect = imageAreaRef.current.getBoundingClientRect();
         const newX = panXRef.current - e.deltaX;
         const newY = panYRef.current - e.deltaY;
-        const c = clampPan(newX, newY, zoomRef.current, imgW.current, imgH.current, rect.width, rect.height);
+        const c = clampPan(newX, newY, zoomRef.current, imgW.current, imgH.current, rect.width, rect.height, rotationRef.current);
         setPanX(c.x);
         setPanY(c.y);
       }
@@ -1044,7 +1140,7 @@ function App() {
       const rect = el.getBoundingClientRect();
       const newX = panStart.current.panX + dx;
       const newY = panStart.current.panY + dy;
-      const c = clampPan(newX, newY, zoomRef.current, imgW.current, imgH.current, rect.width, rect.height);
+      const c = clampPan(newX, newY, zoomRef.current, imgW.current, imgH.current, rect.width, rect.height, rotationRef.current);
       setPanX(c.x);
       setPanY(c.y);
     },
@@ -1076,7 +1172,7 @@ function App() {
               const z = zoomRef.current;
               const nx = panXRef.current + velX;
               const ny = panYRef.current + velY;
-              const c = clampPan(nx, ny, z, imgW.current, imgH.current, rect.width, rect.height);
+              const c = clampPan(nx, ny, z, imgW.current, imgH.current, rect.width, rect.height, rotationRef.current);
               if (c.x !== nx) velX = 0;
               if (c.y !== ny) velY = 0;
               setPanX(c.x);
@@ -1135,251 +1231,36 @@ function App() {
     if (overflowIds.has("sort-controls")) setSortDropdownOpen(false);
   }, []);
 
-  // ── Toolbar items (split by section for granular memoization) ────
+  // ── Toolbar items ──────────────────────────────────────────────────
   const showExtras = images.length > 0 || !!currentFolder;
   const showCenter = images.length > 1;
 
-  const leftToolbarItems = useMemo((): ToolbarItemDef[] => {
-    const items: ToolbarItemDef[] = [];
-
-    items.push({
-      id: "open", section: "left", priority: 0, condition: true,
-      renderToolbar: () => (
-        <button className="toolbar-btn" onClick={openFile} title={t("toolbar.openImage", language)}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-            <rect x="8" y="11" width="8" height="6" rx="1" />
-            <circle cx="10" cy="13.5" r="1" />
-            <polyline points="21 15 16 10 13 13" />
-          </svg>
-        </button>
-      ),
-      renderMenu: () => (
-        <button className="toolbar-more-item" onClick={openFile}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-          </svg>
-          {t("toolbar.openImage", language)}
-        </button>
-      ),
-    });
-
-    items.push({
-      id: "sidebar-toggle", section: "left", priority: 5, condition: showExtras,
-      renderToolbar: () => (
-        <button className={`toolbar-btn${sidebarVisible ? " active" : ""}`} onClick={() => setSidebarVisible((v) => !v)} title={t("toolbar.toggleSidebar", language)}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M10 3v18" />
-            <rect x="5" y="7" width="3" height="3" fill="currentColor" />
-            <rect x="5" y="12" width="3" height="3" fill="currentColor" />
-            <rect x="5" y="17" width="3" height="1" fill="currentColor" />
-          </svg>
-        </button>
-      ),
-      renderMenu: () => (
-        <button className="toolbar-more-item" onClick={() => setSidebarVisible((v) => !v)}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M10 3v18" />
-          </svg>
-          {t("toolbar.toggleSidebar", language)}
-        </button>
-      ),
-    });
-
-    items.push({
-      id: "sort-controls", section: "left", priority: 10, condition: showExtras,
-      renderToolbar: () => (
-        <div className="sort-controls" ref={sortDropdownRef}>
-          <button className="sort-btn" onClick={() => setSortDropdownOpen((o) => !o)} title={translate(`sort.${sortBy}`, language)}>
-            <span className="sort-label">{translate(`sort.${sortBy}`, language)}</span>
-            <svg className="sort-chevron" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
-          {sortDropdownOpen && (
-            <div className="sort-dropdown">
-              {(["name", "dimensions", "aspect-ratio", "modified"] as SortMode[]).map((mode) => (
-                <button key={mode} className={`sort-dropdown-item${mode === sortBy ? " active" : ""}`} onClick={() => { setSortBy(mode); setSortDropdownOpen(false); }}>
-                  {translate(`sort.${mode}`, language)}
-                </button>
-              ))}
-            </div>
-          )}
-          <button className="sort-dir-btn" onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))} title={sortOrder === "asc" ? t("sort.ascending", language) : t("sort.descending", language)}>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" stroke="none">
-              {sortOrder === "asc" ? (
-                <>
-                  <rect x="0" y="9" width="3" height="3" rx="0.5" opacity="0.35" />
-                  <rect x="4.5" y="5" width="3" height="7" rx="0.5" opacity="0.65" />
-                  <rect x="9" y="0" width="3" height="12" rx="0.5" />
-                </>
-              ) : (
-                <>
-                  <rect x="0" y="0" width="3" height="12" rx="0.5" />
-                  <rect x="4.5" y="2" width="3" height="10" rx="0.5" opacity="0.65" />
-                  <rect x="9" y="7" width="3" height="5" rx="0.5" opacity="0.35" />
-                </>
-              )}
-            </svg>
-          </button>
-        </div>
-      ),
-      renderMenu: () => (
-        <>
-          <span className="toolbar-more-label">{language === "zh" ? "排序方式" : "Sort by"}</span>
-          {(["name", "dimensions", "aspect-ratio", "modified"] as SortMode[]).map((mode) => (
-            <button key={mode} className={`toolbar-more-item${mode === sortBy ? " active" : ""}`} onClick={() => setSortBy(mode)}>
-              {translate(`sort.${mode}`, language)}
-            </button>
-          ))}
-          <div className="toolbar-more-separator" />
-          <button className="toolbar-more-item" onClick={() => setSortOrder((o) => (o === "asc" ? "desc" : "asc"))}>
-            {sortOrder === "asc" ? t("sort.ascending", language) : t("sort.descending", language)}
-          </button>
-        </>
-      ),
-    });
-
-    items.push({
-      id: "filename", section: "left", priority: 35, condition: !!fileName,
-      renderToolbar: () => <span className="toolbar-filename">{fileName}</span>,
-      renderMenu: () => <span className="toolbar-more-label">{fileName}</span>,
-    });
-
-    return items;
-  }, [language, showExtras, sidebarVisible, fileName, sortBy, sortOrder, sortDropdownOpen, openFile]);
-
-  const centerToolbarItems = useMemo((): ToolbarItemDef[] => {
-    const items: ToolbarItemDef[] = [];
-
-    items.push({
-      id: "prev", section: "center", priority: 0, condition: showCenter,
-      renderToolbar: () => (
-        <button className="toolbar-btn" onClick={() => navigate(-1)} title={t("toolbar.previous", language)}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
-      ),
-      renderMenu: () => (
-        <button className="toolbar-more-item" onClick={() => navigate(-1)}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          {t("toolbar.previous", language)}
-        </button>
-      ),
-    });
-
-    items.push({
-      id: "counter", section: "center", priority: 20, condition: showCenter,
-      renderToolbar: () => <span className="toolbar-counter">{currentIndex + 1} / {images.length}</span>,
-      renderMenu: () => <span className="toolbar-more-label">{currentIndex + 1} / {images.length}</span>,
-    });
-
-    items.push({
-      id: "next", section: "center", priority: 0, condition: showCenter,
-      renderToolbar: () => (
-        <button className="toolbar-btn" onClick={() => navigate(1)} title={t("toolbar.next", language)}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-        </button>
-      ),
-      renderMenu: () => (
-        <button className="toolbar-more-item" onClick={() => navigate(1)}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-          {t("toolbar.next", language)}
-        </button>
-      ),
-    });
-
-    items.push({
-      id: "slideshow", section: "center", priority: 15, condition: showCenter,
-      renderToolbar: () => (
-        <button className="toolbar-btn" onClick={toggleSlideshow} title={slideshowActive ? t("slideshow.pause", language) : t("slideshow.play", language)}>
-          {slideshowActive ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-              <rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" />
-            </svg>
-          ) : (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-              <polygon points="6,3 20,12 6,21" />
-            </svg>
-          )}
-        </button>
-      ),
-      renderMenu: () => (
-        <button className="toolbar-more-item" onClick={toggleSlideshow}>
-          {slideshowActive ? t("slideshow.pause", language) : t("slideshow.play", language)}
-        </button>
-      ),
-    });
-
-    return items;
-  }, [language, showCenter, currentIndex, images.length, slideshowActive, navigate, toggleSlideshow]);
-
-  const rightToolbarItems = useMemo((): ToolbarItemDef[] => {
-    const items: ToolbarItemDef[] = [];
-
-    items.push({
-      id: "settings", section: "right", priority: 8, condition: true,
-      renderToolbar: () => (
-        <button
-          className={`toolbar-btn${settingsOpen ? " active" : ""}`}
-          onClick={() => setSettingsOpen((v) => !v)}
-          title={t("settings.title", language)}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-        </button>
-      ),
-      renderMenu: () => (
-        <button className="toolbar-more-item" onClick={() => setSettingsOpen(true)}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-          {t("settings.title", language)}
-        </button>
-      ),
-    });
-
-    items.push({
-      id: "fullscreen", section: "right", priority: 5, condition: true,
-      renderToolbar: () => (
-        <button className="toolbar-btn" onClick={toggleImmersive} title={isImmersive ? t("toolbar.exitFullscreen", language) : t("toolbar.fullscreen", language)}>
-          {isImmersive ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
-              <line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" />
-            </svg>
-          ) : (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
-              <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
-            </svg>
-          )}
-        </button>
-      ),
-      renderMenu: () => (
-        <button className="toolbar-more-item" onClick={toggleImmersive}>
-          {isImmersive ? t("toolbar.exitFullscreen", language) : t("toolbar.fullscreen", language)}
-        </button>
-      ),
-    });
-
-    return items;
-  }, [language, settingsOpen, isImmersive, toggleImmersive, toggleNativeFullscreen]);
-
-  const toolbarItems = useMemo(
-    () => [...leftToolbarItems, ...centerToolbarItems, ...rightToolbarItems],
-    [leftToolbarItems, centerToolbarItems, rightToolbarItems],
-  );
+  const toolbarItems = useToolbarItems({
+    language,
+    showExtras,
+    showCenter,
+    sidebarVisible,
+    fileName,
+    sortBy,
+    sortOrder,
+    sortDropdownOpen,
+    currentIndex,
+    imageCount: images.length,
+    slideshowActive,
+    slideshowMode,
+    settingsOpen,
+    isImmersive,
+    openFile,
+    navigate,
+    toggleSlideshow,
+    cycleSlideshowMode,
+    toggleImmersive,
+    setSortBy,
+    setSortOrder,
+    setSortDropdownOpen,
+    setSidebarVisible,
+    setSettingsOpen,
+  });
 
   // Cancel animations and timers on unmount
   useEffect(() => {
@@ -1420,6 +1301,9 @@ function App() {
           setSidebarWidth(w);
           try { localStorage.setItem("sidebar-width", String(w)); } catch { /* ignore */ }
         }}
+        selectedIndices={selectedIndices}
+        onSelectedIndicesChange={setSelectedIndices}
+        onBatchDelete={handleBatchDelete}
       />
       <div className="viewer-right">
         <Toolbar items={toolbarItems} onOverflowChange={handleOverflowChange} />
@@ -1508,6 +1392,9 @@ function App() {
             {fileSize !== null && (
               <span className="status-item">{formatFileSize(fileSize)}</span>
             )}
+            {rotation !== 0 && (
+              <span className="status-item">{rotation}°</span>
+            )}
             {fileFormat && (
               <span className="status-item status-format">{fileFormat}</span>
             )}
@@ -1543,8 +1430,10 @@ function App() {
           onSelect={(index) => { setSlideshowActive(false); jumpTo(index); }}
           slideshowActive={slideshowActive}
           slideshowInterval={slideshowInterval}
+          slideshowMode={slideshowMode}
           onToggleSlideshow={toggleSlideshow}
           onCycleInterval={cycleSlideshowInterval}
+          onCycleMode={cycleSlideshowMode}
         />
       )}
 
@@ -1569,6 +1458,9 @@ function App() {
         >
           <button className="context-menu-item" onClick={copyImage}>
             {t("context.copyImage", language)}
+          </button>
+          <button className="context-menu-item" onClick={() => { setRotation((r) => (r + 90) % 360); resetView(); setContextMenu(null); }}>
+            {t("context.rotate", language)}
           </button>
           <button className="context-menu-item" onClick={setDesktopBackground}>
             {t("context.setDesktopBackground", language)}

@@ -1,4 +1,6 @@
 use std::borrow::Cow;
+use std::fs;
+use std::io::Read;
 use std::path::Path;
 use std::process::Command;
 use std::sync::{Condvar, Mutex};
@@ -163,10 +165,144 @@ struct ImageDimensions {
     height: u32,
 }
 
+/// Read EXIF Orientation tag (0x0112) from a JPEG file.
+/// Returns 1-8, or 1 if not found / not a JPEG.
+fn read_jpeg_orientation(path: &Path) -> u16 {
+    let mut file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return 1,
+    };
+    let mut buf = vec![0u8; 65536];
+    let n = match file.read(&mut buf) {
+        Ok(n) if n >= 20 => n,
+        _ => return 1,
+    };
+
+    // Find APP1 marker (FF E1) containing Exif
+    let mut pos = 2usize; // skip SOI (FF D8)
+    while pos + 4 < n {
+        if buf[pos] != 0xFF {
+            return 1;
+        }
+        let marker = buf[pos + 1];
+        if marker == 0xE1 {
+            // APP1 — check for "Exif\0\0"
+            let len = ((buf[pos + 2] as usize) << 8) | (buf[pos + 3] as usize);
+            let data_start = pos + 4;
+            let data_end = (data_start + len - 2).min(n);
+            if data_end > data_start + 6 && &buf[data_start..data_start + 6] == b"Exif\x00\x00" {
+                let tiff_start = data_start + 6;
+                if tiff_start + 8 > n {
+                    return 1;
+                }
+                // Read byte order
+                let little = &buf[tiff_start..tiff_start + 2] == b"II";
+                // Read first IFD offset
+                let ifd_offset = read_u32(&buf, tiff_start + 4, little) as usize;
+                let ifd_start = tiff_start + ifd_offset;
+                if ifd_start + 2 > n {
+                    return 1;
+                }
+                let num_entries = read_u16(&buf, ifd_start, little) as usize;
+                for i in 0..num_entries {
+                    let entry_start = ifd_start + 2 + i * 12;
+                    if entry_start + 12 > n {
+                        return 1;
+                    }
+                    let tag = read_u16(&buf, entry_start, little);
+                    let typ = read_u16(&buf, entry_start + 2, little);
+                    let count = read_u32(&buf, entry_start + 4, little);
+                    if tag == 0x0112 {
+                        // Orientation is SHORT (type 3), value in 2 bytes
+                        if typ == 3 && count == 1 {
+                            return read_u16(&buf, entry_start + 8, little);
+                        }
+                    }
+                }
+            }
+            return 1;
+        }
+        if marker == 0xD8 || marker == 0x00 {
+            pos += 1;
+            continue;
+        }
+        if marker >= 0xD0 && marker <= 0xD7 {
+            // RST markers — no length field
+            pos += 2;
+            continue;
+        }
+        // Other markers: skip length field
+        if pos + 2 >= n {
+            break;
+        }
+        let seg_len = ((buf[pos + 2] as usize) << 8) | (buf[pos + 3] as usize);
+        if seg_len < 2 {
+            break;
+        }
+        pos += 2 + seg_len;
+    }
+    1
+}
+
+fn read_u16(buf: &[u8], offset: usize, little: bool) -> u16 {
+    let b0 = buf[offset] as u16;
+    let b1 = buf[offset + 1] as u16;
+    if little {
+        b0 | (b1 << 8)
+    } else {
+        (b0 << 8) | b1
+    }
+}
+
+fn read_u32(buf: &[u8], offset: usize, little: bool) -> u32 {
+    let b0 = buf[offset] as u32;
+    let b1 = buf[offset + 1] as u32;
+    let b2 = buf[offset + 2] as u32;
+    let b3 = buf[offset + 3] as u32;
+    if little {
+        b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+    } else {
+        (b0 << 24) | (b1 << 16) | (b2 << 8) | b3
+    }
+}
+
 #[tauri::command]
 fn get_images_dimensions(file_paths: Vec<String>) -> Result<Vec<ImageDimensions>, String> {
     if file_paths.is_empty() {
         return Ok(Vec::new());
+    }
+
+    // For small batches, avoid thread creation overhead
+    const MIN_BATCH_FOR_THREADS: usize = 8;
+    if file_paths.len() < MIN_BATCH_FOR_THREADS {
+        let mut results = Vec::with_capacity(file_paths.len());
+        for path_str in &file_paths {
+            let path = Path::new(path_str);
+            let orientation = read_jpeg_orientation(path);
+            let (mut w, mut h) = if let Ok(reader) = image::ImageReader::open(path) {
+                if let Ok(reader) = reader.with_guessed_format() {
+                    if let Ok(dimensions) = reader.into_dimensions() {
+                        (dimensions.0, dimensions.1)
+                    } else {
+                        (0, 0)
+                    }
+                } else {
+                    (0, 0)
+                }
+            } else {
+                (0, 0)
+            };
+            // Swap dimensions if EXIF orientation includes 90° rotation (5-8)
+            if orientation >= 5 && orientation <= 8 && w > 0 && h > 0 {
+                (w, h) = (h, w);
+            }
+            results.push(ImageDimensions {
+                path: path_str.clone(),
+                width: w,
+                height: h,
+            });
+        }
+        return Ok(results);
     }
 
     let paths: std::sync::Arc<[String]> = std::sync::Arc::from(file_paths.into_boxed_slice());
@@ -192,22 +328,27 @@ fn get_images_dimensions(file_paths: Vec<String>) -> Result<Vec<ImageDimensions>
                 for idx in start..end {
                     let path_str = &paths[idx];
                     let path = Path::new(path_str);
-                    if let Ok(reader) = image::ImageReader::open(path) {
+                    let orientation = read_jpeg_orientation(path);
+                    let (mut w, mut h) = if let Ok(reader) = image::ImageReader::open(path) {
                         if let Ok(reader) = reader.with_guessed_format() {
                             if let Ok(dimensions) = reader.into_dimensions() {
-                                results.push(ImageDimensions {
-                                    path: path_str.clone(),
-                                    width: dimensions.0,
-                                    height: dimensions.1,
-                                });
-                                continue;
+                                (dimensions.0, dimensions.1)
+                            } else {
+                                (0, 0)
                             }
+                        } else {
+                            (0, 0)
                         }
+                    } else {
+                        (0, 0)
+                    };
+                    if orientation >= 5 && orientation <= 8 && w > 0 && h > 0 {
+                        (w, h) = (h, w);
                     }
                     results.push(ImageDimensions {
                         path: path_str.clone(),
-                        width: 0,
-                        height: 0,
+                        width: w,
+                        height: h,
                     });
                 }
                 results

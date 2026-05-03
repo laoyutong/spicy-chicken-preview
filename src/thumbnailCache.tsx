@@ -10,7 +10,6 @@ const thumbnailPathCache = new Map<string, string>();
 const pendingRequests = new Map<string, Promise<string>>();
 
 function cacheThumbnailPath(filePath: string, cachePath: string): void {
-  // Evict oldest entry if at capacity (Map preserves insertion order)
   if (thumbnailPathCache.size >= MAX_THUMBNAIL_PATH_CACHE) {
     const oldest = thumbnailPathCache.keys().next().value;
     if (oldest !== undefined) thumbnailPathCache.delete(oldest);
@@ -21,7 +20,6 @@ function cacheThumbnailPath(filePath: string, cachePath: string): void {
 export async function loadThumbnailPath(filePath: string): Promise<string> {
   const cached = thumbnailPathCache.get(filePath);
   if (cached) {
-    // Move to end to mark as recently used
     thumbnailPathCache.delete(filePath);
     thumbnailPathCache.set(filePath, cached);
     return cached;
@@ -46,6 +44,46 @@ export async function loadThumbnailPath(filePath: string): Promise<string> {
   return promise;
 }
 
+// ── Shared IntersectionObserver ────────────────────────────────────
+
+type ObserverCallback = () => void;
+const observerCallbacks = new Map<Element, ObserverCallback>();
+
+let sharedObserver: IntersectionObserver | null = null;
+
+function getSharedObserver(): IntersectionObserver {
+  if (!sharedObserver) {
+    sharedObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const cb = observerCallbacks.get(entry.target);
+            if (cb) {
+              cb();
+              observerCallbacks.delete(entry.target);
+              sharedObserver?.unobserve(entry.target);
+            }
+          }
+        }
+      },
+      { rootMargin: "300px" },
+    );
+  }
+  return sharedObserver;
+}
+
+function observeElement(el: Element, onIntersect: () => void): void {
+  observerCallbacks.set(el, onIntersect);
+  getSharedObserver().observe(el);
+}
+
+function unobserveElement(el: Element): void {
+  observerCallbacks.delete(el);
+  getSharedObserver().unobserve(el);
+}
+
+// ── CachedThumbnail Component ──────────────────────────────────────
+
 interface CachedThumbnailProps {
   filePath: string;
   eager?: boolean;
@@ -54,7 +92,7 @@ interface CachedThumbnailProps {
 export function CachedThumbnail({ filePath, eager }: CachedThumbnailProps) {
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [shouldLoad, setShouldLoad] = useState(false);
+  const [shouldLoad, setShouldLoad] = useState(eager || false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -65,17 +103,8 @@ export function CachedThumbnail({ filePath, eager }: CachedThumbnailProps) {
     const el = containerRef.current;
     if (!el) return;
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setShouldLoad(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "300px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
+    observeElement(el, () => setShouldLoad(true));
+    return () => { unobserveElement(el); };
   }, [eager]);
 
   useEffect(() => {

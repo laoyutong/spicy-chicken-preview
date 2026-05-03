@@ -338,6 +338,60 @@ html, body, #root {
   }
 }
 
+/* ── Sidebar Search ─────────────────────────────────────────────── */
+
+.sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.sidebar-search-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.sidebar-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+  padding: 2px 0;
+}
+
+.sidebar-search-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.sidebar-search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.sidebar-search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 /* ── Sidebar List ──────────────────────────────────────────────── */
 
 .sidebar-list {
@@ -420,6 +474,58 @@ html, body, #root {
 
 .sidebar-item.active .sidebar-filename {
   color: var(--text-primary);
+}
+
+/* ── Sidebar Selection ──────────────────────────────────────────── */
+
+.sidebar-item.selected {
+  background: var(--accent-dim);
+}
+
+.sidebar-item.selected::before {
+  content: '✓';
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.sidebar-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.sidebar-selection-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.sidebar-selection-delete {
+  display: flex;
+  align-items: center;
+  padding: 3px 10px;
+  border: 1px solid var(--error);
+  border-radius: 3px;
+  background: var(--error-dim);
+  color: var(--error);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  transition: background 0.15s ease;
+}
+
+.sidebar-selection-delete:hover {
+  background: var(--error);
+  color: #fff;
 }
 
 /* ── Thumbnails ────────────────────────────────────────────────── */
