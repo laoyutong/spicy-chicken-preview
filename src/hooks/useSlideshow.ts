@@ -35,6 +35,7 @@ export function useSlideshow({
   const [slideshowActive, setSlideshowActive] = useState(false);
   const [slideshowInterval, setSlideshowInterval] = useState(3);
   const [slideshowMode, setSlideshowMode] = useState<SlideshowMode>("forward");
+  const [slideshowTick, setSlideshowTick] = useState(0);
   const shuffleOrderRef = useRef<number[]>([]);
 
   // Keep refs in sync to avoid stale closures inside setInterval
@@ -92,6 +93,10 @@ export function useSlideshow({
     loadImage(imgs[newIndex], true);
   }, [imagesRef, currentIndexRef, setCurrentIndex, loadImage, preloadAdjacent]);
 
+  const resetSlideshowInterval = useCallback(() => {
+    setSlideshowTick((t) => t + 1);
+  }, []);
+
   // Slideshow auto-advance timer
   useEffect(() => {
     if (!slideshowActive || imageCount === 0) return;
@@ -99,7 +104,7 @@ export function useSlideshow({
       slideshowAdvance();
     }, slideshowInterval * 1000);
     return () => clearInterval(timer);
-  }, [slideshowActive, slideshowInterval, imageCount, slideshowAdvance]);
+  }, [slideshowActive, slideshowInterval, imageCount, slideshowAdvance, slideshowTick]);
 
   return {
     slideshowActive,
@@ -111,5 +116,6 @@ export function useSlideshow({
     toggleSlideshow,
     cycleSlideshowInterval,
     cycleSlideshowMode,
+    resetSlideshowInterval,
   };
 }

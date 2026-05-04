@@ -167,6 +167,9 @@ function App() {
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [loading, setLoading] = useState(false);
 
+  // Recursive slideshow: when set, all images from this folder + subdirs are loaded
+  const [recursiveRoot, setRecursiveRoot] = useState<string | null>(null);
+
   // Image preload cache with LRU eviction (capped at ~12 images / ~300MB)
   const imageCache = useRef<LRUImageCache>(new LRUImageCache());
 
@@ -537,7 +540,7 @@ function App() {
     slideshowActive, setSlideshowActive,
     slideshowInterval, setSlideshowInterval,
     slideshowMode, cycleSlideshowMode,
-    toggleSlideshow, cycleSlideshowInterval,
+    toggleSlideshow, cycleSlideshowInterval, resetSlideshowInterval,
   } = useSlideshow({
     imagesRef,
     currentIndexRef,
@@ -556,6 +559,73 @@ function App() {
       return updated;
     });
   }, []);
+
+  const loadRecursiveFolder = useCallback(
+    async (folderPath: string) => {
+      try {
+        const result: {
+          parent: string | null;
+          subdirs: SubdirInfo[];
+          images: string[];
+          image_infos: ImageMeta[];
+        } = await invoke("list_recursive_images", { folderPath });
+        setCurrentFolder(folderPath);
+        setSubdirs(result.subdirs);
+        imgW.current = 0;
+        imgH.current = 0;
+        sourceImg.current = null;
+        imageCache.current.clear();
+
+        const metaMap = new Map<string, ImageMetaRecord>();
+        for (const info of result.image_infos) {
+          metaMap.set(info.path, {
+            size: info.size,
+            extension: info.extension,
+            modified: info.modified,
+          });
+        }
+        imageMetaMapRef.current = metaMap;
+
+        const sorted = sortImagePaths(result.images, sortBy, sortOrder, metaMap);
+        setImages(sorted);
+        setRecursiveRoot(folderPath);
+
+        if (sorted.length > 0) {
+          addToRecentFolders(folderPath);
+        }
+
+        if ((sortBy === "dimensions" || sortBy === "aspect-ratio") && sorted.length > 0) {
+          invoke<{ path: string; width: number; height: number }[]>(
+            "get_images_dimensions", { filePaths: sorted },
+          ).then((dims) => {
+            const map = imageMetaMapRef.current;
+            let hasNew = false;
+            for (const d of dims) {
+              const existing = map.get(d.path);
+              if (existing && existing.width === undefined) {
+                existing.width = d.width;
+                existing.height = d.height;
+                hasNew = true;
+              }
+            }
+            if (hasNew) setMetaVersion((v) => v + 1);
+          }).catch(() => {});
+        }
+
+        if (sorted.length > 0) {
+          setCurrentIndex(0);
+          await loadImage(sorted[0], true);
+        } else {
+          setCurrentIndex(0);
+          setCurrentFile(null);
+          setImageUrl(null);
+        }
+      } catch {
+        setError("error.listFailed");
+      }
+    },
+    [sortBy, sortOrder, loadImage, addToRecentFolders]
+  );
 
   const loadFolder = useCallback(
     async (folderPath: string, selectFile?: string) => {
@@ -642,6 +712,7 @@ function App() {
     });
 
     if (selected) {
+      setRecursiveRoot(null);
       const folderPath = getParentDir(selected as string);
       await loadFolder(folderPath, selected as string);
     }
@@ -728,6 +799,7 @@ function App() {
 
   const navigateToFolder = useCallback(
     async (folderPath: string) => {
+      setRecursiveRoot(null);
       await loadFolder(folderPath);
     },
     [loadFolder]
@@ -737,6 +809,7 @@ function App() {
     if (!currentFolder) return;
     const parentPath = getParentDir(currentFolder);
     if (parentPath && parentPath !== currentFolder) {
+      setRecursiveRoot(null);
       await loadFolder(parentPath);
     }
   }, [currentFolder, loadFolder]);
@@ -962,11 +1035,11 @@ function App() {
       }
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        setSlideshowActive(false);
+        resetSlideshowInterval();
         navigate(-1);
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        setSlideshowActive(false);
+        resetSlideshowInterval();
         navigate(1);
       } else if (e.key === "0") {
         // 0 or Cmd/Ctrl+0: reset zoom
@@ -1031,6 +1104,7 @@ function App() {
 
   const loadOpenedFile = useCallback(
     async (filePath: string) => {
+      setRecursiveRoot(null);
       const folderPath = getParentDir(filePath);
       await loadFolder(folderPath, filePath);
     },
@@ -1243,6 +1317,11 @@ function App() {
     slideshowMode,
     settingsOpen,
     isImmersive,
+    recursiveRoot,
+    onExitRecursive: () => {
+      setRecursiveRoot(null);
+      if (currentFolder) loadFolder(currentFolder);
+    },
     openFile,
     navigate,
     toggleSlideshow,
@@ -1280,7 +1359,7 @@ function App() {
       <Sidebar
         images={images}
         currentIndex={currentIndex}
-        onSelect={(index) => { setSlideshowActive(false); jumpTo(index); }}
+        onSelect={(index) => { resetSlideshowInterval(); jumpTo(index); }}
         visible={sidebarVisible}
         currentFolder={currentFolder}
         subdirs={subdirs}
@@ -1297,6 +1376,12 @@ function App() {
         selectedIndices={selectedIndices}
         onSelectedIndicesChange={setSelectedIndices}
         onBatchDelete={handleBatchDelete}
+        recursiveRoot={recursiveRoot}
+        onRecursivePlay={async (path) => {
+          await loadRecursiveFolder(path);
+          setSlideshowActive(true);
+          if (!isImmersive) toggleImmersive();
+        }}
       />
       <div className="viewer-right">
         <Toolbar items={toolbarItems} onOverflowChange={handleOverflowChange} />
@@ -1420,7 +1505,7 @@ function App() {
         <FullscreenStrip
           images={images}
           currentIndex={currentIndex}
-          onSelect={(index) => { setSlideshowActive(false); jumpTo(index); }}
+          onSelect={(index) => { resetSlideshowInterval(); jumpTo(index); }}
           slideshowActive={slideshowActive}
           slideshowInterval={slideshowInterval}
           slideshowMode={slideshowMode}

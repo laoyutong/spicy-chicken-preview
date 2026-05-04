@@ -19,6 +19,8 @@ interface UseToolbarItemsParams {
   slideshowMode: SlideshowMode;
   settingsOpen: boolean;
   isImmersive: boolean;
+  recursiveRoot: string | null;
+  onExitRecursive: () => void;
   openFile: () => void;
   navigate: (delta: number) => void;
   toggleSlideshow: () => void;
@@ -150,7 +152,7 @@ function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
 }
 
 function ToolbarCenterItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
-  const { language, showCenter, currentIndex, imageCount, slideshowActive, slideshowMode, navigate, toggleSlideshow, cycleSlideshowMode } = params;
+  const { language, showCenter, currentIndex, imageCount, slideshowActive, slideshowMode, recursiveRoot, onExitRecursive, navigate, toggleSlideshow, cycleSlideshowMode } = params;
 
   const modeLabel = slideshowMode === "shuffle" ? "⇄" : "→";
 
@@ -172,6 +174,29 @@ function ToolbarCenterItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
             <polyline points="15 18 9 12 15 6" />
           </svg>
           {t("toolbar.previous", language)}
+        </button>
+      ),
+    });
+
+    items.push({
+      id: "recursive-chip", section: "center", priority: 5, condition: showCenter && !!recursiveRoot,
+      renderToolbar: () => {
+        const folderName = recursiveRoot ? (recursiveRoot.replace(/\\/g, "/").split("/").filter(Boolean).pop() || recursiveRoot) : "";
+        return (
+          <button className="toolbar-recursive-chip" onClick={onExitRecursive} title={t("toolbar.exitRecursive", language)}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+            <span className="toolbar-recursive-chip-name">{folderName}</span>
+            <svg className="toolbar-recursive-chip-close" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        );
+      },
+      renderMenu: () => (
+        <button className="toolbar-more-item" onClick={onExitRecursive}>
+          {t("toolbar.exitRecursive", language)}
         </button>
       ),
     });
@@ -238,7 +263,7 @@ function ToolbarCenterItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
     });
 
     return items;
-  }, [language, showCenter, currentIndex, imageCount, slideshowActive, slideshowMode, navigate, toggleSlideshow, cycleSlideshowMode]);
+  }, [language, showCenter, currentIndex, imageCount, slideshowActive, slideshowMode, recursiveRoot, onExitRecursive, navigate, toggleSlideshow, cycleSlideshowMode]);
 }
 
 function ToolbarRightItems(params: UseToolbarItemsParams): ToolbarItemDef[] {

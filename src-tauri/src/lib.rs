@@ -137,6 +137,92 @@ fn list_folder_contents(folder_path: &str) -> Result<FolderContents, String> {
 }
 
 #[tauri::command]
+fn list_recursive_images(folder_path: &str) -> Result<FolderContents, String> {
+    let path = Path::new(folder_path);
+    if !path.is_dir() {
+        return Err("Not a directory".to_string());
+    }
+
+    let parent = path
+        .parent()
+        .and_then(|p| p.to_str())
+        .map(|s| s.to_string());
+
+    let valid_extensions = [
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "tiff", "tif",
+    ];
+
+    let mut images: Vec<String> = Vec::new();
+    let mut image_infos: Vec<ImageMeta> = Vec::new();
+
+    // Recursively collect images from folder_path and all nested subdirs
+    let mut dirs_to_visit = vec![path.to_path_buf()];
+    while let Some(dir) = dirs_to_visit.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            if entry_path.is_dir() {
+                if let Some(name) = entry_path.file_name().and_then(|n| n.to_str()) {
+                    if !name.starts_with('.') {
+                        dirs_to_visit.push(entry_path);
+                    }
+                }
+            } else if entry_path.is_file() {
+                if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
+                    if valid_extensions.contains(&ext.to_lowercase().as_str()) {
+                        let path_str = entry_path.to_string_lossy().to_string();
+                        let (file_size, file_modified) = std::fs::metadata(&entry_path)
+                            .map(|m| {
+                                let modified = m
+                                    .modified()
+                                    .ok()
+                                    .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+                                    .map(|d| d.as_secs())
+                                    .unwrap_or(0);
+                                (m.len(), modified)
+                            })
+                            .unwrap_or((0, 0));
+                        image_infos.push(ImageMeta {
+                            path: path_str.clone(),
+                            size: file_size,
+                            extension: ext.to_uppercase(),
+                            modified: file_modified,
+                        });
+                        images.push(path_str);
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by filename
+    let mut indexed: Vec<(String, ImageMeta)> = images
+        .iter()
+        .zip(image_infos.iter().cloned())
+        .map(|(p, info)| (p.clone(), info))
+        .collect();
+
+    indexed.sort_by(|(a, _), (b, _)| {
+        let a_name = Path::new(a).file_name().map(|n| n.to_string_lossy().to_lowercase());
+        let b_name = Path::new(b).file_name().map(|n| n.to_string_lossy().to_lowercase());
+        a_name.cmp(&b_name)
+    });
+
+    images = indexed.iter().map(|(p, _)| p.clone()).collect();
+    image_infos = indexed.iter().map(|(_, info)| info.clone()).collect();
+
+    Ok(FolderContents {
+        parent,
+        subdirs: Vec::new(),
+        images,
+        image_infos,
+    })
+}
+
+#[tauri::command]
 fn get_file_info(file_path: &str) -> Result<FileInfo, String> {
     let path = Path::new(file_path);
     let metadata = std::fs::metadata(path)
@@ -513,6 +599,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             list_folder_contents,
+            list_recursive_images,
             get_file_info,
             get_pending_file,
             get_thumbnail,

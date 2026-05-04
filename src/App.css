@@ -778,6 +778,10 @@ html, body, #root {
   background: var(--bg-hover);
 }
 
+.sidebar-folder-item.recursive-active {
+  background: var(--accent-dim);
+}
+
 .sidebar-folder-item .sidebar-folder-icon {
   color: var(--accent);
   opacity: 0.55;
@@ -793,6 +797,94 @@ html, body, #root {
 
 .sidebar-folder-item:hover .sidebar-folder-name {
   color: var(--text-primary);
+}
+
+/* ── Recursive Play Button ─────────────────────────────────────── */
+
+.sidebar-folder-play {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: var(--accent-dim);
+  color: var(--accent);
+  cursor: pointer;
+  border-radius: 50%;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  margin-left: auto;
+}
+
+.sidebar-folder-item:hover .sidebar-folder-play,
+.sidebar-folder-title:hover .sidebar-folder-play {
+  opacity: 1;
+}
+
+.sidebar-folder-play:hover {
+  background: var(--accent-dim-hover);
+}
+
+.sidebar-folder-play svg {
+  width: 10px;
+  height: 10px;
+  margin-left: 1px;
+}
+
+.sidebar-folder-title.recursive-active {
+  color: var(--accent);
+}
+
+/* ── Toolbar Recursive Chip ────────────────────────────────────── */
+
+.toolbar-recursive-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s ease;
+}
+
+.toolbar-recursive-chip:hover {
+  background: var(--accent-dim-hover);
+}
+
+.toolbar-recursive-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar-recursive-chip-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.toolbar-recursive-chip:hover .toolbar-recursive-chip-close {
+  opacity: 1;
 }
 
 /* ── Sidebar Divider ────────────────────────────────────────────── */
