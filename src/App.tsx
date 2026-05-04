@@ -13,13 +13,15 @@ import SettingsModal from "./SettingsModal";
 import { useSlideshow } from "./hooks/useSlideshow";
 import { useFullscreen } from "./hooks/useFullscreen";
 import { useWindowState } from "./hooks/useWindowState";
+import { usePanZoom } from "./hooks/usePanZoom";
+import { usePanGesture } from "./hooks/usePanGesture";
+import { useFileOperations } from "./hooks/useFileOperations";
+import { useImageMetadata } from "./hooks/useImageMetadata";
+import { sortImagePaths, type ImageMetaRecord } from "./utils/sorting";
+import { getFittedSize } from "./utils/geometry";
+import { formatFileSize, getParentDir } from "./utils/format";
 import "./App.css";
 import "./Toolbar.css";
-
-const MIN_ZOOM = 0.5;
-const MAX_ZOOM = 10;
-const ZOOM_STEP = 0.1;
-const PAN_DEAD_ZONE = 3;
 
 function loadTheme(): "dark" | "light" {
   try {
@@ -40,18 +42,6 @@ function loadSidebarWidth(): number {
   return DEFAULT_SIDEBAR_WIDTH;
 }
 
-function getFittedSize(
-  imgW: number, imgH: number, cw: number, ch: number,
-): { fw: number; fh: number } {
-  if (imgW <= 0 || imgH <= 0) return { fw: cw, fh: ch };
-  const imgAspect = imgW / imgH;
-  const containerAspect = cw / ch;
-  if (imgAspect > containerAspect) {
-    return { fw: cw, fh: cw / imgAspect };
-  }
-  return { fw: ch * imgAspect, fh: ch };
-}
-
 interface SubdirInfo {
   name: string;
   path: string;
@@ -64,87 +54,6 @@ interface ImageMeta {
   modified: number;
 }
 
-export type SortMode = "name" | "dimensions" | "aspect-ratio" | "modified";
-
-interface ImageMetaRecord {
-  size: number;
-  extension: string;
-  modified: number;
-  width?: number;
-  height?: number;
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-function comparePaths(
-  a: string, b: string,
-  mode: SortMode, order: "asc" | "desc",
-  metaMap: Map<string, ImageMetaRecord>,
-): number {
-  const sign = order === "asc" ? 1 : -1;
-  const metaA = metaMap.get(a);
-  const metaB = metaMap.get(b);
-
-  switch (mode) {
-    case "name": {
-      const na = a.split(/[/\\]/).pop()?.toLowerCase() || a;
-      const nb = b.split(/[/\\]/).pop()?.toLowerCase() || b;
-      return na.localeCompare(nb) * sign;
-    }
-    case "dimensions": {
-      const areaA = (metaA?.width ?? 0) * (metaA?.height ?? 0);
-      const areaB = (metaB?.width ?? 0) * (metaB?.height ?? 0);
-      return (areaA - areaB) * sign;
-    }
-    case "aspect-ratio": {
-      const ra = metaA?.width && metaA?.height ? metaA.width / metaA.height : 0;
-      const rb = metaB?.width && metaB?.height ? metaB.width / metaB.height : 0;
-      return (ra - rb) * sign;
-    }
-    case "modified": {
-      const ma = metaA?.modified ?? 0;
-      const mb = metaB?.modified ?? 0;
-      return (ma - mb) * sign;
-    }
-    default:
-      return 0;
-  }
-}
-
-function sortImagePaths(
-  paths: string[],
-  mode: SortMode, order: "asc" | "desc",
-  metaMap: Map<string, ImageMetaRecord>,
-): string[] {
-  // Fast-path: backend already sorts by filename ascending
-  if (mode === "name" && order === "asc") return paths;
-  return [...paths].sort((a, b) => comparePaths(a, b, mode, order, metaMap));
-}
-
-function clampPan(
-  px: number, py: number, zoomVal: number,
-  imgW: number, imgH: number, cw: number, ch: number,
-  rotation: number = 0,
-): { x: number; y: number } {
-  if (imgW <= 0 || imgH <= 0 || cw <= 0 || ch <= 0) return { x: 0, y: 0 };
-  const isSwapped = rotation === 90 || rotation === 270;
-  const ew = isSwapped ? imgH : imgW;
-  const eh = isSwapped ? imgW : imgH;
-  const { fw, fh } = getFittedSize(ew, eh, cw, ch);
-  const sw = fw * zoomVal;
-  const sh = fh * zoomVal;
-  const maxX = Math.abs(sw - cw) / 2;
-  const maxY = Math.abs(sh - ch) / 2;
-  return {
-    x: Math.max(-maxX, Math.min(maxX, px)),
-    y: Math.max(-maxY, Math.min(maxY, py)),
-  };
-}
 function App() {
   const [images, setImages] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -170,58 +79,47 @@ function App() {
   // Recursive slideshow: when set, all images from this folder + subdirs are loaded
   const [recursiveRoot, setRecursiveRoot] = useState<string | null>(null);
 
-  // Image preload cache with LRU eviction (capped at ~12 images / ~300MB)
+  // Refs shared across subsystems
   const imageCache = useRef<LRUImageCache>(new LRUImageCache());
+  const imgW = useRef(0);
+  const imgH = useRef(0);
+  const sourceImg = useRef<HTMLImageElement | null>(null);
+  const imageAreaRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fullscreenTransitioningRef = useRef(false);
+  const breadcrumbRef = useRef<HTMLDivElement>(null);
 
-  // Zoom & pan
-  const [zoom, setZoom] = useState(1);
-  const [panX, setPanX] = useState(0);
-  const [panY, setPanY] = useState(0);
-  const [drawVersion, setDrawVersion] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const [rotation, setRotation] = useState(0); // 0, 90, 180, 270
+  // Image loading refs
+  const loadGen = useRef(0);
+  const pendingImgRef = useRef<HTMLImageElement | null>(null);
+  const loadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadDebounceStartRef = useRef(0);
+  const loadStartTimeRef = useRef(0);
 
   // File info for status bar
   const [imageDimensions, setImageDimensions] = useState<{ w: number; h: number } | null>(null);
   const [fileSize, setFileSize] = useState<number | null>(null);
   const [fileFormat, setFileFormat] = useState<string | null>(null);
 
-  // Sorting
-  const [sortBy, setSortBy] = useState<SortMode>("name");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const imageMetaMapRef = useRef<Map<string, ImageMetaRecord>>(new Map());
-  const [metaVersion, setMetaVersion] = useState(0);
-  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
-  const sortDropdownRef = useRef<HTMLDivElement>(null);
-  const breadcrumbRef = useRef<HTMLDivElement>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [drawVersion, setDrawVersion] = useState(0);
+
+  // Multi-select for batch operations
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
 
-  const zoomRef = useRef(zoom);
-  const panXRef = useRef(panX);
-  const panYRef = useRef(panY);
-  const rotationRef = useRef(rotation);
-  const imgW = useRef(0);
-  const imgH = useRef(0);
-  const sourceImg = useRef<HTMLImageElement | null>(null);
-  const isPanning = useRef(false);
-  const hasPanned = useRef(false);
-  const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
-  const velocitySamples = useRef<{ x: number; y: number; t: number }[]>([]);
-  const momentumRaf = useRef(0);
-  const loadGen = useRef(0);
-  const pendingImgRef = useRef<HTMLImageElement | null>(null);
-  const loadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loadDebounceStartRef = useRef(0);
-  const loadStartTimeRef = useRef(0);
-  const imageAreaRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fullscreenTransitioningRef = useRef(false);
+  // ── Composed hooks ─────────────────────────────────────────────
 
-  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
-  useEffect(() => { panXRef.current = panX; }, [panX]);
-  useEffect(() => { panYRef.current = panY; }, [panY]);
-  useEffect(() => { rotationRef.current = rotation; }, [rotation]);
+  const pz = usePanZoom({ imageAreaRef, imgW, imgH });
+
+  const meta = useImageMetadata({ images, currentFile, setImages, setCurrentIndex });
+
+  const gestures = usePanGesture({
+    imageAreaRef,
+    zoomRef: pz.zoomRef, panXRef: pz.panXRef, panYRef: pz.panYRef,
+    rotationRef: pz.rotationRef,
+    imgW, imgH,
+    setPanX: pz.setPanX, setPanY: pz.setPanY,
+    zoomToward: pz.zoomToward,
+  });
 
   // Refs for slideshow auto-advance (avoid stale closures in setInterval)
   const imagesRef = useRef(images);
@@ -265,10 +163,10 @@ function App() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cw, ch);
 
-    const z = zoomRef.current;
-    const px = panXRef.current;
-    const py = panYRef.current;
-    const rot = rotation;
+    const z = pz.zoomRef.current;
+    const px = pz.panXRef.current;
+    const py = pz.panYRef.current;
+    const rot = pz.rotation;
 
     // Effective dimensions after rotation
     const isSwapped = rot === 90 || rot === 270;
@@ -314,7 +212,7 @@ function App() {
     if (rot !== 0) {
       ctx.restore();
     }
-  }, [rotation]);
+  }, [pz.rotation]);
 
   // ── Fullscreen ─────────────────────────────────────────────────
   const {
@@ -328,7 +226,7 @@ function App() {
 
   // Redraw on zoom/pan change or explicit draw trigger (image switch).
   // drawVersion ensures a draw even when zoom/pan stay at default values.
-  useEffect(() => { draw(); }, [zoom, panX, panY, drawVersion, draw]);
+  useEffect(() => { draw(); }, [pz.zoom, pz.panX, pz.panY, drawVersion, draw]);
 
   // Redraw on resize (container size changes) — rAF-batched.
   // Skip during fullscreen transition: the tauri://resize handler
@@ -349,45 +247,7 @@ function App() {
     };
   }, [draw]);
 
-  // ── Zoom helper ────────────────────────────────────────────────
-
-  const zoomToward = useCallback((cx: number, cy: number, step: number) => {
-    const container = imageAreaRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const cw = rect.width;
-    const ch = rect.height;
-    if (cw <= 0 || ch <= 0) return;
-
-    const oldZ = zoomRef.current;
-    const newZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldZ + step * oldZ));
-    if (newZ === oldZ) return;
-
-    const ratio = newZ / oldZ;
-    const px = panXRef.current;
-    const py = panYRef.current;
-    const newPx = (cx - cw / 2) * (1 - ratio) + px * ratio;
-    const newPy = (cy - ch / 2) * (1 - ratio) + py * ratio;
-
-    const c = clampPan(newPx, newPy, newZ, imgW.current, imgH.current, cw, ch, rotationRef.current);
-    setZoom(newZ);
-    setPanX(c.x);
-    setPanY(c.y);
-  }, []);
-
-  function getParentDir(filePath: string): string {
-    const normalized = filePath.replace(/\\/g, "/");
-    const lastSlash = normalized.lastIndexOf("/");
-    return lastSlash >= 0 ? normalized.substring(0, lastSlash) : normalized;
-  }
-
   // ── Image loading ─────────────────────────────────────────────
-
-  const resetView = useCallback(() => {
-    setZoom(1);
-    setPanX(0);
-    setPanY(0);
-  }, []);
 
   // Preload adjacent images into cache for instant navigation
   const preloadAdjacent = useCallback(
@@ -449,7 +309,7 @@ function App() {
         setImageUrl(url);
         setCurrentFile(filePath);
         setError(null);
-        // Delay resetView until new image is decoded — keeping the old
+        // Delay pz.resetView until new image is decoded — keeping the old
         // image at its current zoom/pan prevents a visual jump.
 
         // Fetch file metadata in parallel with image loading
@@ -467,8 +327,8 @@ function App() {
           imgH.current = cached.naturalHeight;
           setImageDimensions({ w: cached.naturalWidth, h: cached.naturalHeight });
           if (reset) {
-            zoomRef.current = 1; panXRef.current = 0; panYRef.current = 0;
-            setZoom(1); setPanX(0); setPanY(0);
+            pz.zoomRef.current = 1; pz.panXRef.current = 0; pz.panYRef.current = 0;
+            pz.setZoom(1); pz.setPanX(0); pz.setPanY(0);
           }
           // Force draw even when zoom/pan are already at default values
           setDrawVersion(v => v + 1);
@@ -504,8 +364,8 @@ function App() {
         setImageDimensions({ w: img.naturalWidth, h: img.naturalHeight });
         imageCache.current.set(filePath, img);
         if (reset) {
-          zoomRef.current = 1; panXRef.current = 0; panYRef.current = 0;
-          setZoom(1); setPanX(0); setPanY(0);
+          pz.zoomRef.current = 1; pz.panXRef.current = 0; pz.panYRef.current = 0;
+          pz.setZoom(1); pz.setPanX(0); pz.setPanY(0);
         }
         // Force draw even when zoom/pan are already at default values
         setDrawVersion(v => v + 1);
@@ -550,6 +410,24 @@ function App() {
     preloadAdjacent,
   });
 
+  const fileOps = useFileOperations({
+    currentFile,
+    selectedIndices,
+    setSelectedIndices,
+    imagesRef,
+    currentIndexRef,
+    imageMetaMapRef: meta.imageMetaMapRef,
+    imageCache,
+    loadImage,
+    setImages,
+    setCurrentIndex,
+    setImageUrl,
+    setCurrentFile,
+    imgW,
+    imgH,
+    sourceImg,
+  });
+
   const addToRecentFolders = useCallback((folderPath: string) => {
     const name = folderPath.replace(/\\/g, "/").split("/").filter(Boolean).pop() || folderPath;
     setRecentFolders((prev) => {
@@ -584,9 +462,9 @@ function App() {
             modified: info.modified,
           });
         }
-        imageMetaMapRef.current = metaMap;
+        meta.imageMetaMapRef.current = metaMap;
 
-        const sorted = sortImagePaths(result.images, sortBy, sortOrder, metaMap);
+        const sorted = sortImagePaths(result.images, meta.sortBy, meta.sortOrder, metaMap);
         setImages(sorted);
         setRecursiveRoot(folderPath);
 
@@ -594,11 +472,11 @@ function App() {
           addToRecentFolders(folderPath);
         }
 
-        if ((sortBy === "dimensions" || sortBy === "aspect-ratio") && sorted.length > 0) {
+        if ((meta.sortBy === "dimensions" || meta.sortBy === "aspect-ratio") && sorted.length > 0) {
           invoke<{ path: string; width: number; height: number }[]>(
             "get_images_dimensions", { filePaths: sorted },
           ).then((dims) => {
-            const map = imageMetaMapRef.current;
+            const map = meta.imageMetaMapRef.current;
             let hasNew = false;
             for (const d of dims) {
               const existing = map.get(d.path);
@@ -608,7 +486,7 @@ function App() {
                 hasNew = true;
               }
             }
-            if (hasNew) setMetaVersion((v) => v + 1);
+            if (hasNew) meta.setMetaVersion((v) => v + 1);
           }).catch(() => {});
         }
 
@@ -624,7 +502,7 @@ function App() {
         setError("error.listFailed");
       }
     },
-    [sortBy, sortOrder, loadImage, addToRecentFolders]
+    [meta.sortBy, meta.sortOrder, loadImage, addToRecentFolders]
   );
 
   const loadFolder = useCallback(
@@ -653,21 +531,21 @@ function App() {
           });
         }
 
-        imageMetaMapRef.current = metaMap;
+        meta.imageMetaMapRef.current = metaMap;
 
         // Sort images by current sort criteria (unknown dimensions = 0, sort to end)
-        const sorted = sortImagePaths(result.images, sortBy, sortOrder, metaMap);
+        const sorted = sortImagePaths(result.images, meta.sortBy, meta.sortOrder, metaMap);
         setImages(sorted);
 
         if (sorted.length > 0) addToRecentFolders(folderPath);
 
         // For dimension-dependent sorts, load dimensions in background after first image is shown
-        if ((sortBy === "dimensions" || sortBy === "aspect-ratio") && sorted.length > 0) {
+        if ((meta.sortBy === "dimensions" || meta.sortBy === "aspect-ratio") && sorted.length > 0) {
           const imagesToMeasure = sorted;
           invoke<{ path: string; width: number; height: number }[]>(
             "get_images_dimensions", { filePaths: imagesToMeasure },
           ).then((dims) => {
-            const map = imageMetaMapRef.current;
+            const map = meta.imageMetaMapRef.current;
             let hasNew = false;
             for (const d of dims) {
               const existing = map.get(d.path);
@@ -677,7 +555,7 @@ function App() {
                 hasNew = true;
               }
             }
-            if (hasNew) setMetaVersion((v) => v + 1);
+            if (hasNew) meta.setMetaVersion((v) => v + 1);
           }).catch(() => {});
         }
 
@@ -697,7 +575,7 @@ function App() {
         setError("error.listFailed");
       }
     },
-    [loadImage, sortBy, sortOrder, addToRecentFolders]
+    [loadImage, meta.sortBy, meta.sortOrder, addToRecentFolders]
   );
 
   const openFile = useCallback(async () => {
@@ -774,7 +652,7 @@ function App() {
   const navigate = useCallback(
     (delta: number) => {
       if (images.length === 0) return;
-      if (momentumRaf.current) { cancelAnimationFrame(momentumRaf.current); momentumRaf.current = 0; }
+      if (gestures.momentumRaf.current) { cancelAnimationFrame(gestures.momentumRaf.current); gestures.momentumRaf.current = 0; }
       const idx = currentIndexRef.current;
       const newIndex = (idx + delta + images.length) % images.length;
       currentIndexRef.current = newIndex;
@@ -788,7 +666,7 @@ function App() {
   const jumpTo = useCallback(
     (index: number) => {
       if (images.length === 0 || index === currentIndexRef.current) return;
-      if (momentumRaf.current) { cancelAnimationFrame(momentumRaf.current); momentumRaf.current = 0; }
+      if (gestures.momentumRaf.current) { cancelAnimationFrame(gestures.momentumRaf.current); gestures.momentumRaf.current = 0; }
       currentIndexRef.current = index;
       setCurrentIndex(index);
       preloadAdjacent(index);
@@ -837,191 +715,6 @@ function App() {
     try { localStorage.setItem("language", language); } catch { /* ignore */ }
   }, [language]);
 
-  // Re-sort images when sort criteria or metadata changes
-  useEffect(() => {
-    if (images.length === 0) return;
-    const currentPath = currentFile || images[currentIndex] || undefined;
-    const sorted = sortImagePaths(images, sortBy, sortOrder, imageMetaMapRef.current);
-    // Only update if order actually changed
-    const orderChanged = sorted.some((p, i) => p !== images[i]);
-    if (!orderChanged) return;
-    setImages(sorted);
-    if (currentPath) {
-      const newIdx = sorted.indexOf(currentPath);
-      if (newIdx >= 0) setCurrentIndex(newIdx);
-    }
-  }, [sortBy, sortOrder, metaVersion]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Fetch dimensions when sorting by dimensions or aspect-ratio
-  useEffect(() => {
-    if (sortBy !== "dimensions" && sortBy !== "aspect-ratio") return;
-    if (images.length === 0) return;
-
-    // Find paths that need dimensions
-    const missing = images.filter((p) => {
-      const meta = imageMetaMapRef.current.get(p);
-      return !meta || meta.width === undefined;
-    });
-
-    if (missing.length === 0) return;
-
-    let cancelled = false;
-    invoke<{ path: string; width: number; height: number }[]>(
-      "get_images_dimensions",
-      { filePaths: missing },
-    )
-      .then((dims) => {
-        if (cancelled) return;
-        const map = imageMetaMapRef.current;
-        for (const d of dims) {
-          const existing = map.get(d.path);
-          if (existing) {
-            existing.width = d.width;
-            existing.height = d.height;
-          }
-        }
-        setMetaVersion((v) => v + 1);
-      })
-      .catch(() => {
-        // Silently fail - dimensions won't be available
-      });
-
-    return () => { cancelled = true; };
-  }, [sortBy, images.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Context Menu ─────────────────────────────────────────────────
-
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      if (!currentFile) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setContextMenu({ x: e.clientX, y: e.clientY });
-    },
-    [currentFile],
-  );
-
-  const copyImage = useCallback(async () => {
-    if (!currentFile) return;
-    setContextMenu(null);
-    try {
-      await invoke("copy_image_to_clipboard", { filePath: currentFile });
-    } catch (err) {
-      console.error("Failed to copy image:", err);
-    }
-  }, [currentFile]);
-
-  const setDesktopBackground = useCallback(async () => {
-    if (!currentFile) return;
-    setContextMenu(null);
-    try {
-      await invoke("set_desktop_background", { filePath: currentFile });
-    } catch (err) {
-      console.error("Failed to set desktop background:", err);
-    }
-  }, [currentFile]);
-
-  const revealInFinder = useCallback(async () => {
-    if (!currentFile) return;
-    setContextMenu(null);
-    try {
-      await invoke("reveal_in_finder", { filePath: currentFile });
-    } catch (err) {
-      console.error("Failed to reveal in Finder:", err);
-    }
-  }, [currentFile]);
-
-  const handleMoveToTrash = useCallback(async () => {
-    if (!currentFile) return;
-    const imgs = imagesRef.current;
-    if (imgs.length === 0) return;
-    setContextMenu(null);
-    try {
-      await invoke("move_to_trash", { filePath: currentFile });
-    } catch (err) {
-      console.error("Failed to move to trash:", err);
-      return;
-    }
-    // Remove from metadata map and image cache
-    imageMetaMapRef.current.delete(currentFile);
-    imageCache.current.delete(currentFile);
-
-    const idx = imgs.indexOf(currentFile);
-    const newImages = imgs.filter((_, i) => i !== idx);
-
-    if (newImages.length === 0) {
-      setImages([]);
-      setCurrentIndex(0);
-      setImageUrl(null);
-      setCurrentFile(null);
-      sourceImg.current = null;
-      return;
-    }
-
-    const newIdx = idx >= newImages.length
-      ? Math.max(0, newImages.length - 1)
-      : idx;
-    setImages(newImages);
-    setCurrentIndex(newIdx);
-    imgW.current = 0;
-    imgH.current = 0;
-    sourceImg.current = null;
-    loadImage(newImages[newIdx], true);
-  }, [currentFile, loadImage]);
-
-  const handleBatchDelete = useCallback(async () => {
-    if (selectedIndices.size === 0) return;
-    const imgs = imagesRef.current;
-    const toDelete = [...selectedIndices].sort((a, b) => b - a); // Remove from end to preserve indices
-    let hadErrors = false;
-    for (const idx of toDelete) {
-      if (idx < 0 || idx >= imgs.length) continue;
-      const path = imgs[idx];
-      try {
-        await invoke("move_to_trash", { filePath: path });
-      } catch {
-        hadErrors = true;
-        continue;
-      }
-      imageMetaMapRef.current.delete(path);
-      imageCache.current.delete(path);
-    }
-    setSelectedIndices(new Set());
-    if (hadErrors) return;
-
-    const remaining = imgs.filter((_, i) => !selectedIndices.has(i));
-    if (remaining.length === 0) {
-      setImages([]);
-      setCurrentIndex(0);
-      setImageUrl(null);
-      setCurrentFile(null);
-      sourceImg.current = null;
-      return;
-    }
-    const currentPath = currentFile;
-    let newIdx = remaining.indexOf(currentPath!);
-    if (newIdx < 0) newIdx = Math.min(currentIndexRef.current, remaining.length - 1);
-    setImages(remaining);
-    setCurrentIndex(newIdx);
-    imgW.current = 0; imgH.current = 0; sourceImg.current = null;
-    loadImage(remaining[newIdx], true);
-  }, [selectedIndices, currentFile, loadImage]);
-
-  // Close context menu on outside interaction
-  useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    const closeOnScroll = () => setContextMenu(null);
-    document.addEventListener("click", close);
-    document.addEventListener("contextmenu", close);
-    window.addEventListener("scroll", closeOnScroll, { capture: true });
-    return () => {
-      document.removeEventListener("click", close);
-      document.removeEventListener("contextmenu", close);
-      window.removeEventListener("scroll", closeOnScroll, { capture: true });
-    };
-  }, [contextMenu]);
-
   // Keyboard
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1044,14 +737,14 @@ function App() {
       } else if (e.key === "0") {
         // 0 or Cmd/Ctrl+0: reset zoom
         e.preventDefault();
-        resetView();
+        pz.resetView();
       } else if ((e.key === "=" || e.key === "+") && (e.metaKey || e.ctrlKey)) {
         // Cmd/Ctrl + =/+ : zoom in
         e.preventDefault();
         const el = imageAreaRef.current;
         if (el) {
           const r = el.getBoundingClientRect();
-          zoomToward(r.width / 2, r.height / 2, ZOOM_STEP * 2);
+          pz.zoomToward(r.width / 2, r.height / 2, pz.ZOOM_STEP * 2);
         }
       } else if (e.key === "-" && (e.metaKey || e.ctrlKey)) {
         // Cmd/Ctrl + - : zoom out
@@ -1059,7 +752,7 @@ function App() {
         const el = imageAreaRef.current;
         if (el) {
           const r = el.getBoundingClientRect();
-          zoomToward(r.width / 2, r.height / 2, -ZOOM_STEP * 2);
+          pz.zoomToward(r.width / 2, r.height / 2, -pz.ZOOM_STEP * 2);
         }
       } else if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
         // Cmd/Ctrl + B : toggle sidebar
@@ -1081,26 +774,26 @@ function App() {
       } else if ((e.key === "c" || e.key === "C") && (e.metaKey || e.ctrlKey)) {
         // Cmd/Ctrl+C: copy image to clipboard
         e.preventDefault();
-        copyImage();
+        fileOps.copyImage();
       } else if ((e.key === "r" || e.key === "R") && !(e.metaKey || e.ctrlKey || e.shiftKey)) {
         // R: rotate clockwise 90°
         e.preventDefault();
-        setRotation((r) => (r + 90) % 360);
-        resetView();
+        pz.setRotation((r) => (r + 90) % 360);
+        pz.resetView();
       } else if ((e.key === "R") && e.shiftKey) {
         // Shift+R: rotate counterclockwise 90°
         e.preventDefault();
-        setRotation((r) => (r + 270) % 360);
-        resetView();
+        pz.setRotation((r) => (r + 270) % 360);
+        pz.resetView();
       } else if (e.key === "Delete" || e.key === "Backspace") {
         // Delete/Backspace: move to trash
         e.preventDefault();
-        handleMoveToTrash();
+        fileOps.handleMoveToTrash();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, resetView, zoomToward, toggleNativeFullscreen, isImmersive, settingsOpen, imageUrl, handleMoveToTrash, copyImage]);
+  }, [navigate, pz.resetView, pz.zoomToward, toggleNativeFullscreen, isImmersive, settingsOpen, imageUrl, fileOps.handleMoveToTrash, fileOps.copyImage]);
 
   const loadOpenedFile = useCallback(
     async (filePath: string) => {
@@ -1131,134 +824,15 @@ function App() {
 
   // Close sort dropdown on outside click
   useEffect(() => {
-    if (!sortDropdownOpen) return;
+    if (!meta.sortDropdownOpen) return;
     const handleClick = (e: MouseEvent) => {
-      if (sortDropdownRef.current && !sortDropdownRef.current.contains(e.target as Node)) {
-        setSortDropdownOpen(false);
+      if (meta.sortDropdownRef.current && !meta.sortDropdownRef.current.contains(e.target as Node)) {
+        meta.setSortDropdownOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [sortDropdownOpen]);
-
-  // ── Wheel: zoom / pan ─────────────────────────────────────────
-
-  useEffect(() => {
-    const el = imageAreaRef.current;
-    if (!el) return;
-
-    const handleWheel = (e: WheelEvent) => {
-      if (isPanning.current) return;
-      if (!imageAreaRef.current) return;
-      e.preventDefault();
-
-      const isPinch = e.ctrlKey || e.metaKey;
-
-      if (isPinch) {
-        const step = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
-        zoomToward(e.clientX, e.clientY, step);
-      } else {
-        if (momentumRaf.current) { cancelAnimationFrame(momentumRaf.current); momentumRaf.current = 0; }
-        const rect = imageAreaRef.current.getBoundingClientRect();
-        const newX = panXRef.current - e.deltaX;
-        const newY = panYRef.current - e.deltaY;
-        const c = clampPan(newX, newY, zoomRef.current, imgW.current, imgH.current, rect.width, rect.height, rotationRef.current);
-        setPanX(c.x);
-        setPanY(c.y);
-      }
-    };
-
-    el.addEventListener("wheel", handleWheel, { passive: false });
-    return () => el.removeEventListener("wheel", handleWheel);
-  }, [zoomToward]);
-
-  // ── Pointer: drag to pan ──────────────────────────────────────
-
-  const panHandlers = useRef({
-    handlePointerDown(e: React.PointerEvent) {
-      // Cancel any ongoing momentum animation
-      if (momentumRaf.current) {
-        cancelAnimationFrame(momentumRaf.current);
-        momentumRaf.current = 0;
-      }
-      velocitySamples.current = [];
-      e.preventDefault();
-      isPanning.current = true;
-      hasPanned.current = false;
-      panStart.current = {
-        x: e.clientX, y: e.clientY,
-        panX: panXRef.current, panY: panYRef.current,
-      };
-      imageAreaRef.current?.setPointerCapture(e.pointerId);
-    },
-
-    handlePointerMove(e: React.PointerEvent) {
-      if (!isPanning.current) return;
-      velocitySamples.current.push({ x: e.clientX, y: e.clientY, t: performance.now() });
-      if (velocitySamples.current.length > 8) velocitySamples.current.shift();
-      const dx = e.clientX - panStart.current.x;
-      const dy = e.clientY - panStart.current.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (!hasPanned.current && dist < PAN_DEAD_ZONE) return;
-      if (!hasPanned.current) { hasPanned.current = true; setDragging(true); }
-
-      const el = imageAreaRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const newX = panStart.current.panX + dx;
-      const newY = panStart.current.panY + dy;
-      const c = clampPan(newX, newY, zoomRef.current, imgW.current, imgH.current, rect.width, rect.height, rotationRef.current);
-      setPanX(c.x);
-      setPanY(c.y);
-    },
-
-    handlePointerUp() {
-      if (!isPanning.current) return;
-      isPanning.current = false;
-      hasPanned.current = false;
-      setDragging(false);
-
-      // Start momentum from velocity samples
-      const samples = velocitySamples.current;
-      if (samples.length >= 2) {
-        const first = samples[0];
-        const last = samples[samples.length - 1];
-        const dt = last.t - first.t;
-        if (dt > 0) {
-          const vx = (last.x - first.x) / dt * 16;
-          const vy = (last.y - first.y) / dt * 16;
-          if (Math.abs(vx) >= 0.5 || Math.abs(vy) >= 0.5) {
-            const friction = 0.94;
-            const minVel = 0.15;
-            let velX = vx;
-            let velY = vy;
-            const tick = () => {
-              const el = imageAreaRef.current;
-              if (!el) return;
-              const rect = el.getBoundingClientRect();
-              const z = zoomRef.current;
-              const nx = panXRef.current + velX;
-              const ny = panYRef.current + velY;
-              const c = clampPan(nx, ny, z, imgW.current, imgH.current, rect.width, rect.height, rotationRef.current);
-              if (c.x !== nx) velX = 0;
-              if (c.y !== ny) velY = 0;
-              setPanX(c.x);
-              setPanY(c.y);
-              velX *= friction;
-              velY *= friction;
-              if (Math.abs(velX) > minVel || Math.abs(velY) > minVel) {
-                momentumRaf.current = requestAnimationFrame(tick);
-              } else {
-                momentumRaf.current = 0;
-              }
-            };
-            momentumRaf.current = requestAnimationFrame(tick);
-          }
-        }
-      }
-      velocitySamples.current = [];
-    },
-  }).current;
+  }, [meta.sortDropdownOpen]);
 
   const handleDoubleClick = () => toggleImmersive();
 
@@ -1292,10 +866,10 @@ function App() {
     }
   }, [currentFolder]);
 
-  const zoomPercent = Math.round(zoom * 100);
+  const zoomPercent = Math.round(pz.zoom * 100);
 
   const handleOverflowChange = useCallback((overflowIds: Set<string>) => {
-    if (overflowIds.has("sort-controls")) setSortDropdownOpen(false);
+    if (overflowIds.has("sort-controls")) meta.setSortDropdownOpen(false);
   }, []);
 
   // ── Toolbar items ──────────────────────────────────────────────────
@@ -1308,9 +882,9 @@ function App() {
     showCenter,
     sidebarVisible,
     fileName,
-    sortBy,
-    sortOrder,
-    sortDropdownOpen,
+    sortBy: meta.sortBy,
+    sortOrder: meta.sortOrder,
+    sortDropdownOpen: meta.sortDropdownOpen,
     currentIndex,
     imageCount: images.length,
     slideshowActive,
@@ -1327,9 +901,9 @@ function App() {
     toggleSlideshow,
     cycleSlideshowMode,
     toggleImmersive,
-    setSortBy,
-    setSortOrder,
-    setSortDropdownOpen,
+    setSortBy: meta.setSortBy,
+    setSortOrder: meta.setSortOrder,
+    setSortDropdownOpen: meta.setSortDropdownOpen,
     setSidebarVisible,
     setSettingsOpen,
   });
@@ -1337,9 +911,9 @@ function App() {
   // Cancel animations and timers on unmount
   useEffect(() => {
     return () => {
-      if (momentumRaf.current) {
-        cancelAnimationFrame(momentumRaf.current);
-        momentumRaf.current = 0;
+      if (gestures.momentumRaf.current) {
+        cancelAnimationFrame(gestures.momentumRaf.current);
+        gestures.momentumRaf.current = 0;
       }
       if (loadDebounceRef.current) {
         clearTimeout(loadDebounceRef.current);
@@ -1352,7 +926,7 @@ function App() {
     };
   }, []);
 
-  const areaClass = "image-area" + (dragging ? " dragging" : imageUrl ? " grab" : "");
+  const areaClass = "image-area" + (gestures.dragging ? " dragging" : imageUrl ? " grab" : "");
 
   return (
     <div className={`viewer${isNativeFullscreen ? " fullscreen" : ""}${isImmersive ? " immersive" : ""}`}>
@@ -1375,12 +949,10 @@ function App() {
         }}
         selectedIndices={selectedIndices}
         onSelectedIndicesChange={setSelectedIndices}
-        onBatchDelete={handleBatchDelete}
+        onBatchDelete={fileOps.handleBatchDelete}
         recursiveRoot={recursiveRoot}
-        onRecursivePlay={async (path) => {
-          await loadRecursiveFolder(path);
-          setSlideshowActive(true);
-          if (!isImmersive) toggleImmersive();
+        onRecursivePlay={(path) => {
+          loadRecursiveFolder(path);
         }}
       />
       <div className="viewer-right">
@@ -1419,12 +991,12 @@ function App() {
         ref={imageAreaRef}
         className={areaClass}
         onDoubleClick={handleDoubleClick}
-        onContextMenu={handleContextMenu}
-        onPointerDown={panHandlers.handlePointerDown}
-        onPointerMove={panHandlers.handlePointerMove}
-        onPointerUp={panHandlers.handlePointerUp}
-        onPointerLeave={panHandlers.handlePointerUp}
-        onPointerCancel={panHandlers.handlePointerUp}
+        onContextMenu={fileOps.handleContextMenu}
+        onPointerDown={gestures.panHandlers.handlePointerDown}
+        onPointerMove={gestures.panHandlers.handlePointerMove}
+        onPointerUp={gestures.panHandlers.handlePointerUp}
+        onPointerLeave={gestures.panHandlers.handlePointerUp}
+        onPointerCancel={gestures.panHandlers.handlePointerUp}
       >
         {error ? (
           <div className="state-message">
@@ -1470,8 +1042,8 @@ function App() {
             {fileSize !== null && (
               <span className="status-item">{formatFileSize(fileSize)}</span>
             )}
-            {rotation !== 0 && (
-              <span className="status-item">{rotation}°</span>
+            {pz.rotation !== 0 && (
+              <span className="status-item">{pz.rotation}°</span>
             )}
             {fileFormat && (
               <span className="status-item status-format">{fileFormat}</span>
@@ -1480,18 +1052,18 @@ function App() {
           <div className="status-bar-right">
             <button className="status-zoom-btn" onClick={() => {
               const el = imageAreaRef.current;
-              if (el) { const r = el.getBoundingClientRect(); zoomToward(r.width / 2, r.height / 2, -ZOOM_STEP * 2); }
+              if (el) { const r = el.getBoundingClientRect(); pz.zoomToward(r.width / 2, r.height / 2, -pz.ZOOM_STEP * 2); }
             }} title={t("toolbar.zoomOut", language)}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="8" y1="12" x2="16" y2="12" />
               </svg>
             </button>
-            <span className="status-item status-zoom" onClick={resetView} title={t("toolbar.resetZoom", language)}>
+            <span className="status-item status-zoom" onClick={pz.resetView} title={t("toolbar.resetZoom", language)}>
               {zoomPercent}%
             </span>
             <button className="status-zoom-btn" onClick={() => {
               const el = imageAreaRef.current;
-              if (el) { const r = el.getBoundingClientRect(); zoomToward(r.width / 2, r.height / 2, ZOOM_STEP * 2); }
+              if (el) { const r = el.getBoundingClientRect(); pz.zoomToward(r.width / 2, r.height / 2, pz.ZOOM_STEP * 2); }
             }} title={t("toolbar.zoomIn", language)}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" />
@@ -1526,29 +1098,29 @@ function App() {
         onSlideshowIntervalChange={setSlideshowInterval}
       />
 
-      {contextMenu && currentFile && (
+      {fileOps.contextMenu && currentFile && (
         <div
           className="context-menu"
           style={{
-            left: Math.min(contextMenu.x, window.innerWidth - 220),
-            top: Math.min(contextMenu.y, window.innerHeight - 180),
+            left: Math.min(fileOps.contextMenu.x, window.innerWidth - 220),
+            top: Math.min(fileOps.contextMenu.y, window.innerHeight - 180),
           }}
         >
-          <button className="context-menu-item" onClick={copyImage}>
+          <button className="context-menu-item" onClick={fileOps.copyImage}>
             {t("context.copyImage", language)}
           </button>
-          <button className="context-menu-item" onClick={() => { setRotation((r) => (r + 90) % 360); resetView(); setContextMenu(null); }}>
+          <button className="context-menu-item" onClick={() => { pz.setRotation((r) => (r + 90) % 360); pz.resetView(); fileOps.setContextMenu(null); }}>
             {t("context.rotate", language)}
           </button>
-          <button className="context-menu-item" onClick={setDesktopBackground}>
+          <button className="context-menu-item" onClick={fileOps.setDesktopBackground}>
             {t("context.setDesktopBackground", language)}
           </button>
           <div className="context-menu-divider" />
-          <button className="context-menu-item" onClick={revealInFinder}>
+          <button className="context-menu-item" onClick={fileOps.revealInFinder}>
             {t("context.revealInFinder", language)}
           </button>
           <div className="context-menu-divider" />
-          <button className="context-menu-item context-menu-item--danger" onClick={handleMoveToTrash}>
+          <button className="context-menu-item context-menu-item--danger" onClick={fileOps.handleMoveToTrash}>
             {t("context.moveToTrash", language)}
           </button>
         </div>

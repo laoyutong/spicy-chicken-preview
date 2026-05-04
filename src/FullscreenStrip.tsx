@@ -35,7 +35,8 @@ export default function FullscreenStrip({
 
   const mountedRef = useRef(false);
 
-  // Snap to current item on mount (before paint), smooth-scroll on subsequent changes
+  // Snap to current item on mount (before paint), smooth-scroll on short jumps,
+  // instant-snap on long jumps (typical in shuffle slideshow).
   useLayoutEffect(() => {
     const strip = stripRef.current;
     if (!strip) return;
@@ -45,7 +46,6 @@ export default function FullscreenStrip({
     const target = activeItem.offsetLeft - strip.offsetWidth / 2 + activeItem.offsetWidth / 2;
 
     if (!mountedRef.current) {
-      // First mount: snap immediately, no animation
       mountedRef.current = true;
       strip.scrollLeft = target;
       return;
@@ -55,15 +55,22 @@ export default function FullscreenStrip({
     const distance = target - start;
     if (Math.abs(distance) < 4) return;
 
+    const stripWidth = strip.offsetWidth;
+    // If the target is more than 2 viewport-widths away, snap instantly.
+    // This handles shuffle-mode large jumps without a disorienting flying animation.
+    if (Math.abs(distance) > stripWidth * 2) {
+      strip.scrollLeft = target;
+      return;
+    }
+
     const duration = 300;
     const startTime = performance.now();
-    const el = strip;
 
     function animate(now: number) {
       const elapsed = now - startTime;
       const t = Math.min(elapsed / duration, 1);
       const eased = 1 - Math.pow(1 - t, 3);
-      el.scrollLeft = start + distance * eased;
+      strip.scrollLeft = start + distance * eased;
       if (t < 1) requestAnimationFrame(animate);
     }
     requestAnimationFrame(animate);

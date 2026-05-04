@@ -1,7 +1,7 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
 import { t, translate, type Language } from "./i18n";
 import type { ToolbarItemDef } from "./Toolbar";
-import type { SortMode } from "./App";
+import type { SortMode } from "./utils/sorting";
 import type { SlideshowMode } from "./hooks/useSlideshow";
 
 interface UseToolbarItemsParams {
