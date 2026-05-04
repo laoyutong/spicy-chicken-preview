@@ -1,4 +1,5 @@
 export type SortMode = "name" | "dimensions" | "aspect-ratio" | "modified";
+export type FilterMode = "all" | "landscape" | "portrait";
 
 export interface ImageMetaRecord {
   size: number;
@@ -51,4 +52,22 @@ export function sortImagePaths(
   // Fast-path: backend already sorts by filename ascending
   if (mode === "name" && order === "asc") return paths;
   return [...paths].sort((a, b) => comparePaths(a, b, mode, order, metaMap));
+}
+
+export function filterImagePaths(
+  paths: string[],
+  mode: FilterMode,
+  metaMap: Map<string, ImageMetaRecord>,
+): string[] {
+  if (mode === "all") return paths;
+  return paths.filter(p => {
+    const meta = metaMap.get(p);
+    if (!meta || meta.width === undefined || meta.height === undefined) return true;
+    const ratio = meta.width / meta.height;
+    switch (mode) {
+      case "landscape": return ratio > 1;
+      case "portrait": return ratio < 1;
+      default: return true;
+    }
+  });
 }

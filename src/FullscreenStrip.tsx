@@ -65,12 +65,13 @@ export default function FullscreenStrip({
 
     const duration = 300;
     const startTime = performance.now();
+    const el = strip;
 
     function animate(now: number) {
       const elapsed = now - startTime;
       const t = Math.min(elapsed / duration, 1);
       const eased = 1 - Math.pow(1 - t, 3);
-      strip.scrollLeft = start + distance * eased;
+      el.scrollLeft = start + distance * eased;
       if (t < 1) requestAnimationFrame(animate);
     }
     requestAnimationFrame(animate);

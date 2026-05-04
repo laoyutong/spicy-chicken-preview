@@ -1,7 +1,7 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
 import { t, translate, type Language } from "./i18n";
 import type { ToolbarItemDef } from "./Toolbar";
-import type { SortMode } from "./utils/sorting";
+import type { SortMode, FilterMode } from "./utils/sorting";
 import type { SlideshowMode } from "./hooks/useSlideshow";
 
 interface UseToolbarItemsParams {
@@ -21,6 +21,11 @@ interface UseToolbarItemsParams {
   isImmersive: boolean;
   recursiveRoot: string | null;
   onExitRecursive: () => void;
+  filterMode: FilterMode;
+  setFilterMode: Dispatch<SetStateAction<FilterMode>>;
+  filterDropdownOpen: boolean;
+  setFilterDropdownOpen: Dispatch<SetStateAction<boolean>>;
+  filterDropdownRef: { current: HTMLDivElement | null };
   openFile: () => void;
   navigate: (delta: number) => void;
   toggleSlideshow: () => void;
@@ -36,7 +41,7 @@ interface UseToolbarItemsParams {
 function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
   const {
     language, showExtras, sidebarVisible, fileName,
-    sortBy, sortOrder, sortDropdownOpen,
+    sortBy, sortOrder, sortDropdownOpen, filterMode, setFilterMode, filterDropdownOpen, setFilterDropdownOpen, filterDropdownRef,
     openFile, setSortBy, setSortDropdownOpen, setSortOrder, setSidebarVisible,
   } = params;
 
@@ -141,6 +146,52 @@ function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
       ),
     });
 
+    const FILTER_MODES: FilterMode[] = ["all", "landscape", "portrait"];
+    items.push({
+      id: "filter", section: "left", priority: 12, condition: showExtras,
+      renderToolbar: () => (
+        <div className="filter-controls" ref={filterDropdownRef}>
+          <button
+            className={`filter-btn${filterMode !== "all" ? " active" : ""}`}
+            onClick={() => setFilterDropdownOpen((o) => !o)}
+            title={translate(`filter.${filterMode}`, language)}
+          >
+            <span className="filter-label">{translate(`filter.${filterMode}`, language)}</span>
+            <svg className="filter-chevron" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+          {filterDropdownOpen && (
+            <div className="filter-dropdown">
+              {FILTER_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  className={`filter-dropdown-item${mode === filterMode ? " active" : ""}`}
+                  onClick={() => { setFilterMode(mode); setFilterDropdownOpen(false); }}
+                >
+                  {translate(`filter.${mode}`, language)}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ),
+      renderMenu: () => (
+        <>
+          <span className="toolbar-more-label">{language === "zh" ? "筛选" : "Filter"}</span>
+          {FILTER_MODES.map((mode) => (
+            <button
+              key={mode}
+              className={`toolbar-more-item${mode === filterMode ? " active" : ""}`}
+              onClick={() => setFilterMode(mode)}
+            >
+              {translate(`filter.${mode}`, language)}
+            </button>
+          ))}
+        </>
+      ),
+    });
+
     items.push({
       id: "filename", section: "left", priority: 35, condition: !!fileName,
       renderToolbar: () => <span className="toolbar-filename">{fileName}</span>,
@@ -148,7 +199,7 @@ function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
     });
 
     return items;
-  }, [language, showExtras, sidebarVisible, fileName, sortBy, sortOrder, sortDropdownOpen, openFile, setSortBy, setSortDropdownOpen, setSortOrder, setSidebarVisible]);
+  }, [language, showExtras, sidebarVisible, fileName, sortBy, sortOrder, sortDropdownOpen, filterMode, setFilterMode, filterDropdownOpen, setFilterDropdownOpen, filterDropdownRef, openFile, setSortBy, setSortDropdownOpen, setSortOrder, setSidebarVisible]);
 }
 
 function ToolbarCenterItems(params: UseToolbarItemsParams): ToolbarItemDef[] {

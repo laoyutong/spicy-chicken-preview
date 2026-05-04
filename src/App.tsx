@@ -17,7 +17,7 @@ import { usePanZoom } from "./hooks/usePanZoom";
 import { usePanGesture } from "./hooks/usePanGesture";
 import { useFileOperations } from "./hooks/useFileOperations";
 import { useImageMetadata } from "./hooks/useImageMetadata";
-import { sortImagePaths, type ImageMetaRecord } from "./utils/sorting";
+import { sortImagePaths, filterImagePaths, type ImageMetaRecord, type FilterMode } from "./utils/sorting";
 import { getFittedSize } from "./utils/geometry";
 import { formatFileSize, getParentDir } from "./utils/format";
 import "./App.css";
@@ -79,6 +79,13 @@ function App() {
   // Recursive slideshow: when set, all images from this folder + subdirs are loaded
   const [recursiveRoot, setRecursiveRoot] = useState<string | null>(null);
 
+  // Image filter
+  const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
+  const [filterLoading, setFilterLoading] = useState(false);
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
+  const unfilteredImagesRef = useRef<string[]>([]);
+
   // Refs shared across subsystems
   const imageCache = useRef<LRUImageCache>(new LRUImageCache());
   const imgW = useRef(0);
@@ -110,7 +117,7 @@ function App() {
 
   const pz = usePanZoom({ imageAreaRef, imgW, imgH });
 
-  const meta = useImageMetadata({ images, currentFile, setImages, setCurrentIndex });
+  const meta = useImageMetadata({ images, currentFile, setImages, setCurrentIndex, unfilteredImagesRef, filterMode });
 
   const gestures = usePanGesture({
     imageAreaRef,
@@ -126,6 +133,61 @@ function App() {
   useEffect(() => { imagesRef.current = images; }, [images]);
   const currentIndexRef = useRef(currentIndex);
   useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+
+  // Re-filter when filter mode changes. Also fetch dimensions for
+  // unfiltered images when a shape filter is active, so filtering
+  // takes effect even under the default "name" sort.
+  useEffect(() => {
+    if (unfilteredImagesRef.current.length === 0) return;
+    const currentPath = currentFile;
+    const filtered = filterImagePaths(unfilteredImagesRef.current, filterMode, meta.imageMetaMapRef.current);
+    if (filtered.length === 0) return;
+    setImages(filtered);
+    if (currentPath) {
+      const newIdx = filtered.indexOf(currentPath);
+      if (newIdx >= 0) {
+        setCurrentIndex(newIdx);
+      } else {
+        setCurrentIndex(0);
+        loadImage(filtered[0], true);
+      }
+    }
+
+    if (filterMode !== "all") {
+      const missing = unfilteredImagesRef.current.filter((p) => {
+        const m = meta.imageMetaMapRef.current.get(p);
+        return !m || m.width === undefined;
+      });
+      if (missing.length > 0) {
+        setFilterLoading(true);
+        invoke<{ path: string; width: number; height: number }[]>(
+          "get_images_dimensions", { filePaths: missing },
+        ).then((dims) => {
+          const map = meta.imageMetaMapRef.current;
+          let hasNew = false;
+          for (const d of dims) {
+            const existing = map.get(d.path);
+            if (existing && existing.width === undefined) {
+              existing.width = d.width;
+              existing.height = d.height;
+              hasNew = true;
+            }
+          }
+          if (hasNew) meta.setMetaVersion((v) => v + 1);
+          setFilterLoading(false);
+        }).catch(() => { setFilterLoading(false); });
+      }
+    }
+  }, [filterMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When images change (filter/sort), if the current file is no longer
+  // in the list, switch to the first image.
+  useEffect(() => {
+    if (images.length === 0 || !currentFile) return;
+    if (!images.includes(currentFile)) {
+      loadImage(images[0], true);
+    }
+  }, [images, currentFile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Canvas rendering ──────────────────────────────────────────
 
@@ -440,6 +502,7 @@ function App() {
 
   const loadRecursiveFolder = useCallback(
     async (folderPath: string) => {
+      setFilterMode("all");
       try {
         const result: {
           parent: string | null;
@@ -465,7 +528,9 @@ function App() {
         meta.imageMetaMapRef.current = metaMap;
 
         const sorted = sortImagePaths(result.images, meta.sortBy, meta.sortOrder, metaMap);
-        setImages(sorted);
+        unfilteredImagesRef.current = sorted;
+        const filtered = filterImagePaths(sorted, filterMode, metaMap);
+        setImages(filtered);
         setRecursiveRoot(folderPath);
 
         if (sorted.length > 0) {
@@ -502,11 +567,12 @@ function App() {
         setError("error.listFailed");
       }
     },
-    [meta.sortBy, meta.sortOrder, loadImage, addToRecentFolders]
+    [meta.sortBy, meta.sortOrder, loadImage, addToRecentFolders, setFilterMode]
   );
 
   const loadFolder = useCallback(
     async (folderPath: string, selectFile?: string) => {
+      setFilterMode("all");
       try {
         const result: {
           parent: string | null;
@@ -535,7 +601,9 @@ function App() {
 
         // Sort images by current sort criteria (unknown dimensions = 0, sort to end)
         const sorted = sortImagePaths(result.images, meta.sortBy, meta.sortOrder, metaMap);
-        setImages(sorted);
+        unfilteredImagesRef.current = sorted;
+        const filtered = filterImagePaths(sorted, filterMode, metaMap);
+        setImages(filtered);
 
         if (sorted.length > 0) addToRecentFolders(folderPath);
 
@@ -575,7 +643,7 @@ function App() {
         setError("error.listFailed");
       }
     },
-    [loadImage, meta.sortBy, meta.sortOrder, addToRecentFolders]
+    [loadImage, meta.sortBy, meta.sortOrder, addToRecentFolders, setFilterMode]
   );
 
   const openFile = useCallback(async () => {
@@ -834,6 +902,18 @@ function App() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [meta.sortDropdownOpen]);
 
+  // Close filter dropdown on outside click
+  useEffect(() => {
+    if (!filterDropdownOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target as Node)) {
+        setFilterDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [filterDropdownOpen]);
+
   const handleDoubleClick = () => toggleImmersive();
 
   const fileName = useMemo(() => {
@@ -896,6 +976,11 @@ function App() {
       setRecursiveRoot(null);
       if (currentFolder) loadFolder(currentFolder);
     },
+    filterMode,
+    setFilterMode,
+    filterDropdownOpen,
+    setFilterDropdownOpen,
+    filterDropdownRef,
     openFile,
     navigate,
     toggleSlideshow,
@@ -1006,7 +1091,7 @@ function App() {
         ) : imageUrl ? (
           <div className="canvas-stack">
             <canvas ref={canvasRef} className="preview-canvas" />
-            <div className={`canvas-loading-bar${loading ? " active" : ""}`} />
+            <div className={`canvas-loading-bar${loading || filterLoading ? " active" : ""}`} />
           </div>
         ) : currentFolder ? (
           <div className="state-message">
