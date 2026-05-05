@@ -37,7 +37,7 @@ export function useImageMetadata({
       if (newIdx >= 0) setCurrentIndex(newIdx);
       else if (filtered.length > 0) { setCurrentIndex(0); }
     }
-  }, [sortBy, sortOrder, metaVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sortBy, sortOrder, metaVersion, filterMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch dimensions when sorting by dimensions or aspect-ratio.
   // Always fetch from the unfiltered list so dimensions are cached for filter changes.

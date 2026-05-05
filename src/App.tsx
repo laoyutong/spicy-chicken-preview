@@ -160,22 +160,41 @@ function App() {
       });
       if (missing.length > 0) {
         setFilterLoading(true);
-        invoke<{ path: string; width: number; height: number }[]>(
-          "get_images_dimensions", { filePaths: missing },
-        ).then((dims) => {
-          const map = meta.imageMetaMapRef.current;
+        // Fetch dimensions in chunks so the UI updates progressively
+        const CHUNK = 100;
+        (async () => {
           let hasNew = false;
-          for (const d of dims) {
-            const existing = map.get(d.path);
-            if (existing && existing.width === undefined) {
-              existing.width = d.width;
-              existing.height = d.height;
-              hasNew = true;
+          try {
+            for (let i = 0; i < missing.length; i += CHUNK) {
+              const batch = missing.slice(i, i + CHUNK);
+              const dims = await invoke<{ path: string; width: number; height: number }[]>(
+                "get_images_dimensions", { filePaths: batch },
+              );
+              const map = meta.imageMetaMapRef.current;
+              for (const d of dims) {
+                const existing = map.get(d.path);
+                if (existing && existing.width === undefined) {
+                  existing.width = d.width;
+                  existing.height = d.height;
+                  hasNew = true;
+                }
+              }
+              if (hasNew) {
+                meta.setMetaVersion((v) => v + 1);
+                // Apply filter immediately with newly loaded dimensions
+                const reFiltered = filterImagePaths(
+                  unfilteredImagesRef.current, filterMode, meta.imageMetaMapRef.current,
+                );
+                setImages(reFiltered);
+                if (currentFile && !reFiltered.includes(currentFile) && reFiltered.length > 0) {
+                  loadImage(reFiltered[0], true);
+                }
+                hasNew = false;
+              }
             }
-          }
-          if (hasNew) meta.setMetaVersion((v) => v + 1);
+          } catch { /* ignore */ }
           setFilterLoading(false);
-        }).catch(() => { setFilterLoading(false); });
+        })();
       }
     }
   }, [filterMode]); // eslint-disable-line react-hooks/exhaustive-deps

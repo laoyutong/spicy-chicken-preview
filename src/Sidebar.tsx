@@ -325,15 +325,14 @@ export default function Sidebar({
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
             <span className="sidebar-folder-name">{getFolderName(currentFolder)}</span>
-            <button
-              className="sidebar-folder-play"
+            <span
+              className={`sidebar-folder-play${recursiveRoot === currentFolder ? " active" : ""}`}
               onClick={(e) => { e.stopPropagation(); if (currentFolder) onRecursivePlay(currentFolder); }}
-              title={t("sidebar.recursivePlay", language)}
             >
-              <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                <polygon points="6,3 20,12 6,21" />
-              </svg>
-            </button>
+              {recursiveRoot === currentFolder
+                ? t("sidebar.recursiveActive", language)
+                : t("sidebar.recursivePlay", language)}
+            </span>
           </div>
         </div>
       )}
@@ -354,15 +353,14 @@ export default function Sidebar({
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                   </svg>
                   <span className="sidebar-folder-name">{dir.name}</span>
-                  <button
-                    className="sidebar-folder-play"
+                  <span
+                    className={`sidebar-folder-play${recursiveRoot === dir.path ? " active" : ""}`}
                     onClick={(e) => { e.stopPropagation(); onRecursivePlay(dir.path); }}
-                    title={t("sidebar.recursivePlay", language)}
                   >
-                    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                      <polygon points="6,3 20,12 6,21" />
-                    </svg>
-                  </button>
+                    {recursiveRoot === dir.path
+                      ? t("sidebar.recursiveActive", language)
+                      : t("sidebar.recursivePlay", language)}
+                  </span>
                 </div>
               );
             })}
