@@ -17,7 +17,7 @@ import { usePanZoom } from "./hooks/usePanZoom";
 import { usePanGesture } from "./hooks/usePanGesture";
 import { useFileOperations } from "./hooks/useFileOperations";
 import { useImageMetadata } from "./hooks/useImageMetadata";
-import { sortImagePaths, filterImagePaths, type ImageMetaRecord, type FilterMode } from "./utils/sorting";
+import { sortImagePaths, filterImagePaths, groupByFolder, type ImageMetaRecord, type FilterMode } from "./utils/sorting";
 import { getFittedSize } from "./utils/geometry";
 import { formatFileSize, getParentDir } from "./utils/format";
 import "./App.css";
@@ -134,6 +134,20 @@ function App() {
   const currentIndexRef = useRef(currentIndex);
   useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
 
+  // O(1) lookup maps for hot paths (indexOf / includes on large lists)
+  const imageIndexMapRef = useRef<Map<string, number>>(new Map());
+  const imageSetRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const map = new Map<string, number>();
+    const set = new Set<string>();
+    for (let i = 0; i < images.length; i++) {
+      map.set(images[i], i);
+      set.add(images[i]);
+    }
+    imageIndexMapRef.current = map;
+    imageSetRef.current = set;
+  }, [images]);
+
   // Re-filter when filter mode changes. Also fetch dimensions for
   // unfiltered images when a shape filter is active, so filtering
   // takes effect even under the default "name" sort.
@@ -203,7 +217,7 @@ function App() {
   // in the list, switch to the first image.
   useEffect(() => {
     if (images.length === 0 || !currentFile) return;
-    if (!images.includes(currentFile)) {
+    if (currentFile && !imageSetRef.current.has(currentFile)) {
       loadImage(images[0], true);
     }
   }, [images, currentFile]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -454,7 +468,7 @@ function App() {
         await metadataPromise;
 
         // Preload neighbours after current image loads (only if still current)
-        const idx = images.indexOf(filePath);
+        const idx = imageIndexMapRef.current.get(filePath) ?? -1;
         if (idx !== -1 && loadGen.current === gen) preloadAdjacent(idx);
       } catch {
         if (loadGen.current !== gen) return;
@@ -498,6 +512,7 @@ function App() {
     imagesRef,
     currentIndexRef,
     imageMetaMapRef: meta.imageMetaMapRef,
+    imageIndexMapRef,
     imageCache,
     loadImage,
     setImages,
@@ -547,8 +562,9 @@ function App() {
         meta.imageMetaMapRef.current = metaMap;
 
         const sorted = sortImagePaths(result.images, meta.sortBy, meta.sortOrder, metaMap);
-        unfilteredImagesRef.current = sorted;
-        const filtered = filterImagePaths(sorted, filterMode, metaMap);
+        const grouped = groupByFolder(sorted);
+        unfilteredImagesRef.current = grouped;
+        const filtered = filterImagePaths(grouped, filterMode, metaMap);
         setImages(filtered);
         setRecursiveRoot(folderPath);
 

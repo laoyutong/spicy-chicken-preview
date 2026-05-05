@@ -71,3 +71,26 @@ export function filterImagePaths(
     }
   });
 }
+
+/** Group paths by their immediate parent folder, sort folders alphabetically.
+ *  Within each folder, paths keep their existing order. */
+export function groupByFolder(paths: string[]): string[] {
+  const groups = new Map<string, string[]>();
+  for (const p of paths) {
+    const normalized = p.replace(/\\/g, "/");
+    const lastSlash = normalized.lastIndexOf("/");
+    const folder = lastSlash >= 0 ? normalized.substring(0, lastSlash) : "";
+    if (!groups.has(folder)) groups.set(folder, []);
+    groups.get(folder)!.push(p);
+  }
+  const sortedFolders = [...groups.keys()].sort((a, b) =>
+    a.toLowerCase().localeCompare(b.toLowerCase())
+  );
+  const result: string[] = [];
+  for (const folder of sortedFolders) {
+    for (const p of groups.get(folder)!) {
+      result.push(p);
+    }
+  }
+  return result;
+}

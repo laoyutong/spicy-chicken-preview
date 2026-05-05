@@ -10,6 +10,7 @@ interface UseFileOperationsParams {
   imagesRef: MutableRefObject<string[]>;
   currentIndexRef: MutableRefObject<number>;
   imageMetaMapRef: MutableRefObject<Map<string, ImageMetaRecord>>;
+  imageIndexMapRef: MutableRefObject<Map<string, number>>;
   imageCache: MutableRefObject<LRUImageCache>;
   loadImage: (filePath: string, reset: boolean) => void;
   setImages: Dispatch<SetStateAction<string[]>>;
@@ -24,7 +25,7 @@ interface UseFileOperationsParams {
 export function useFileOperations({
   currentFile, selectedIndices, setSelectedIndices,
   imagesRef, currentIndexRef,
-  imageMetaMapRef, imageCache, loadImage,
+  imageMetaMapRef, imageIndexMapRef, imageCache, loadImage,
   setImages, setCurrentIndex, setImageUrl, setCurrentFile,
   imgW, imgH, sourceImg,
 }: UseFileOperationsParams) {
@@ -84,7 +85,8 @@ export function useFileOperations({
     imageMetaMapRef.current.delete(currentFile);
     imageCache.current.delete(currentFile);
 
-    const idx = imgs.indexOf(currentFile);
+    const idx = imageIndexMapRef.current.get(currentFile) ?? -1;
+    if (idx < 0) return; // file not in list
     const newImages = imgs.filter((_, i) => i !== idx);
 
     if (newImages.length === 0) {
@@ -137,7 +139,7 @@ export function useFileOperations({
       return;
     }
     const currentPath = currentFile;
-    let newIdx = remaining.indexOf(currentPath!);
+    let newIdx = currentPath ? remaining.indexOf(currentPath) : -1;
     if (newIdx < 0) newIdx = Math.min(currentIndexRef.current, remaining.length - 1);
     setImages(remaining);
     setCurrentIndex(newIdx);

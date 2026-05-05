@@ -29,7 +29,9 @@ export function useImageMetadata({
     const sorted = sortImagePaths(unfilteredImagesRef.current, sortBy, sortOrder, imageMetaMapRef.current);
     unfilteredImagesRef.current = sorted;
     const filtered = filterImagePaths(sorted, filterMode, imageMetaMapRef.current);
-    const orderChanged = filtered.some((p, i) => p !== images[i]);
+    // Fast-path: length change → definitely changed
+    const orderChanged = filtered.length !== images.length
+      || filtered.some((p, i) => p !== images[i]);
     if (!orderChanged) return;
     setImages(filtered);
     if (currentPath) {

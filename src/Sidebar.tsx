@@ -112,9 +112,10 @@ export default function Sidebar({
   }, [images, searchQuery, isSearching]);
 
   // Determine which image list to render
-  const displayItems = isSearching
-    ? filteredImages!
-    : images.map((path, i) => ({ path, originalIndex: i }));
+  const displayItems = useMemo(() => {
+    if (isSearching) return filteredImages!;
+    return images.map((path, i) => ({ path, originalIndex: i }));
+  }, [images, isSearching, filteredImages]);
   const itemCount = displayItems.length;
 
   // Compute visible range for virtual scrolling
@@ -391,20 +392,42 @@ export default function Sidebar({
         ) : (
           <>
             {visibleRange && <div style={{ height: visibleRange.start * ITEM_HEIGHT, flexShrink: 0 }} />}
-            {virtualItems.map(({ path, originalIndex }) => (
-              <div
-                key={path}
-                ref={originalIndex === currentIndex ? activeRef : undefined}
-              >
-                <ThumbnailItem
-                  index={originalIndex}
-                  filePath={path}
-                  isActive={originalIndex === currentIndex}
-                  isSelected={selectedIndices.has(originalIndex)}
-                  onSelect={handleItemClick}
-                />
-              </div>
-            ))}
+            {virtualItems.map(({ path, originalIndex }, vi) => {
+              // Folder separator in recursive mode: insert a label
+              // when the parent folder differs from the previous item.
+              let folderSep = null;
+              if (recursiveRoot && !isSearching) {
+                const currFolder = path.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
+                let prevFolder = "";
+                if (vi > 0) {
+                  prevFolder = virtualItems[vi - 1].path.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
+                } else if (originalIndex > 0 && displayItems[originalIndex - 1]) {
+                  prevFolder = displayItems[originalIndex - 1].path.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
+                }
+                if (currFolder !== prevFolder) {
+                  const name = currFolder.replace(/\\/g, "/").split("/").filter(Boolean).pop() || currFolder;
+                  folderSep = (
+                    <div className="sidebar-folder-sep">
+                      <span className="sidebar-folder-sep-name">{name}</span>
+                    </div>
+                  );
+                }
+              }
+              return (
+                <div key={path}>
+                  {folderSep}
+                  <div ref={originalIndex === currentIndex ? activeRef : undefined}>
+                    <ThumbnailItem
+                      index={originalIndex}
+                      filePath={path}
+                      isActive={originalIndex === currentIndex}
+                      isSelected={selectedIndices.has(originalIndex)}
+                      onSelect={handleItemClick}
+                    />
+                  </div>
+                </div>
+              );
+            })}
             {visibleRange && <div style={{ height: totalHeight - (visibleRange.end * ITEM_HEIGHT), flexShrink: 0 }} />}
           </>
         )}
