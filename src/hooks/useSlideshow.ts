@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type MutableRefObject } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 export type SlideshowMode = "forward" | "shuffle";
 
@@ -105,6 +106,16 @@ export function useSlideshow({
     }, slideshowInterval * 1000);
     return () => clearInterval(timer);
   }, [slideshowActive, slideshowInterval, imageCount, slideshowAdvance, slideshowTick]);
+
+  // Prevent display sleep while slideshow is active
+  useEffect(() => {
+    invoke("keep_awake", { enable: slideshowActive }).catch(() => {});
+    return () => {
+      if (slideshowActiveRef.current) {
+        invoke("keep_awake", { enable: false }).catch(() => {});
+      }
+    };
+  }, [slideshowActive]);
 
   return {
     slideshowActive,

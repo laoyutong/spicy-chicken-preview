@@ -592,6 +592,37 @@ fn url_to_file_path(url_str: &str) -> Option<String> {
     None
 }
 
+// Keep the display awake (macOS: spawn/kill caffeinate)
+static CAFFEINATE: Mutex<Option<std::process::Child>> = Mutex::new(None);
+
+#[tauri::command]
+fn keep_awake(enable: bool) -> Result<(), String> {
+    let mut guard = CAFFEINATE.lock().unwrap();
+    if enable {
+        // Check if the existing caffeinate process is still alive
+        let needs_spawn = match guard.as_mut() {
+            Some(child) => child.try_wait().map(|s| s.is_some()).unwrap_or(true),
+            None => true,
+        };
+        if needs_spawn {
+            // Drop any dead handle before spawning a new one
+            *guard = None;
+            let child = Command::new("/usr/bin/caffeinate")
+                .arg("-dimsu")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map_err(|e| format!("caffeinate spawn failed: {}", e))?;
+            *guard = Some(child);
+        }
+    } else {
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -607,7 +638,8 @@ pub fn run() {
             copy_image_to_clipboard,
             reveal_in_finder,
             move_to_trash,
-            set_desktop_background
+            set_desktop_background,
+            keep_awake
         ])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
