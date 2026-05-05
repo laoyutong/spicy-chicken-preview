@@ -326,14 +326,16 @@ export default function Sidebar({
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
             <span className="sidebar-folder-name">{getFolderName(currentFolder)}</span>
-            <span
-              className={`sidebar-folder-play${recursiveRoot === currentFolder ? " active" : ""}`}
-              onClick={(e) => { e.stopPropagation(); if (currentFolder) onRecursivePlay(currentFolder); }}
-            >
-              {recursiveRoot === currentFolder
-                ? t("sidebar.recursiveActive", language)
-                : t("sidebar.recursivePlay", language)}
-            </span>
+            {subdirs.length > 0 && (
+              <span
+                className={`sidebar-folder-play${recursiveRoot === currentFolder ? " active" : ""}`}
+                onClick={(e) => { e.stopPropagation(); if (currentFolder) onRecursivePlay(currentFolder); }}
+              >
+                {recursiveRoot === currentFolder
+                  ? t("sidebar.recursiveActive", language)
+                  : t("sidebar.recursivePlay", language)}
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -354,14 +356,6 @@ export default function Sidebar({
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                   </svg>
                   <span className="sidebar-folder-name">{dir.name}</span>
-                  <span
-                    className={`sidebar-folder-play${recursiveRoot === dir.path ? " active" : ""}`}
-                    onClick={(e) => { e.stopPropagation(); onRecursivePlay(dir.path); }}
-                  >
-                    {recursiveRoot === dir.path
-                      ? t("sidebar.recursiveActive", language)
-                      : t("sidebar.recursivePlay", language)}
-                  </span>
                 </div>
               );
             })}

@@ -134,6 +134,8 @@
   min-width: 64px;
   text-align: center;
   letter-spacing: 0.4px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* ── Zoom Controls ────────────────────────────────────────────── */

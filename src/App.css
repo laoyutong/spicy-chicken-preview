@@ -857,6 +857,11 @@ html, body, #root {
   color: var(--accent);
 }
 
+.sidebar-folder-title .sidebar-folder-name {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ── Toolbar Recursive Chip ────────────────────────────────────── */
 
 .toolbar-recursive-chip {
