@@ -51,8 +51,10 @@ interface SidebarProps {
   selectedIndices: Set<number>;
   onSelectedIndicesChange: (indices: Set<number>) => void;
   onBatchDelete: () => void;
+  onRequestBatchDelete: () => void;
   recursiveRoot: string | null;
   onRecursivePlay: (folderPath: string) => void;
+  onCloseFolder: () => void;
 }
 
 function getFolderName(folderPath: string): string {
@@ -77,14 +79,15 @@ export default function Sidebar({
   onWidthChange,
   selectedIndices,
   onSelectedIndicesChange,
-  onBatchDelete,
+  onBatchDelete: _onBatchDelete,
+  onRequestBatchDelete,
   recursiveRoot,
   onRecursivePlay,
+  onCloseFolder,
 }: SidebarProps) {
   const activeRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [recentCollapsed, setRecentCollapsed] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const resizing = useRef(false);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
@@ -97,25 +100,10 @@ export default function Sidebar({
   const [containerHeight, setContainerHeight] = useState(0);
   const rafRef = useRef(0);
 
-  const isSearching = searchQuery.length > 0;
-
-  // Filter images by filename when searching
-  const filteredImages = useMemo(() => {
-    if (!isSearching) return null;
-    const q = searchQuery.toLowerCase();
-    return images
-      .map((path, originalIndex) => ({ path, originalIndex }))
-      .filter(({ path }) => {
-        const name = (path.split(/[/\\]/).pop() || path).toLowerCase();
-        return name.includes(q);
-      });
-  }, [images, searchQuery, isSearching]);
-
-  // Determine which image list to render
-  const displayItems = useMemo(() => {
-    if (isSearching) return filteredImages!;
-    return images.map((path, i) => ({ path, originalIndex: i }));
-  }, [images, isSearching, filteredImages]);
+  const displayItems = useMemo(
+    () => images.map((path, i) => ({ path, originalIndex: i })),
+    [images],
+  );
   const itemCount = displayItems.length;
 
   // Compute visible range for virtual scrolling
@@ -158,7 +146,7 @@ export default function Sidebar({
       listRef.current.scrollTop = 0;
       setScrollTop(0);
     }
-  }, [currentFolder, searchQuery]);
+  }, [currentFolder]);
 
   // Virtual scroll: track scroll position
   useEffect(() => {
@@ -238,38 +226,8 @@ export default function Sidebar({
 
   return (
     <div className="sidebar" style={{ width }}>
-      {/* Search input */}
-      {currentFolder && images.length > 0 && (
-        <div className="sidebar-search">
-          <svg className="sidebar-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input
-            className="sidebar-search-input"
-            type="text"
-            placeholder={language === "zh" ? "搜索图片…" : "Search images…"}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setSearchQuery("");
-                (e.target as HTMLInputElement).blur();
-              }
-            }}
-          />
-          {isSearching && (
-            <button className="sidebar-search-clear" onClick={() => setSearchQuery("")} title={language === "zh" ? "清除" : "Clear"}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          )}
-        </div>
-      )}
-
-      {!isSearching && recentFolders.length > 0 && (
-        <div className={`recent-folders${!currentFolder ? " recent-folders--welcome" : ""}`}>
+      {recentFolders.length > 0 && (
+        <div className="recent-folders">
           <div
             className={`recent-folders-title${recentCollapsed ? " collapsed" : ""}`}
             onClick={() => setRecentCollapsed((c) => !c)}
@@ -308,7 +266,7 @@ export default function Sidebar({
           )}
         </div>
       )}
-      {currentFolder && !isSearching && (
+      {currentFolder && (
         <div className="sidebar-folder-header">
           {parentPath && parentPath !== currentFolder && (
             <button
@@ -337,10 +295,20 @@ export default function Sidebar({
               </span>
             )}
           </div>
+          <button
+            className="sidebar-close-folder-btn"
+            onClick={onCloseFolder}
+            title={language === "zh" ? "关闭文件夹" : "Close folder"}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         </div>
       )}
 
-      {subdirs.length > 0 && !isSearching && (
+      {subdirs.length > 0 && (
         <>
           <div className="sidebar-subdirs">
             {subdirs.map((dir) => {
@@ -372,25 +340,17 @@ export default function Sidebar({
                 ? `已选 ${selectedIndices.size} 张`
                 : `${selectedIndices.size} selected`}
             </span>
-            <button className="sidebar-selection-delete" onClick={onBatchDelete}>
+            <button className="sidebar-selection-delete" onClick={onRequestBatchDelete}>
               {language === "zh" ? "删除选中" : "Delete"}
             </button>
           </div>
         )}
-        {isSearching && filteredImages && filteredImages.length === 0 ? (
-          <div className="sidebar-search-empty">
-            <span className="sidebar-filename" style={{ color: 'var(--text-muted)', padding: '12px 8px', display: 'block' }}>
-              {language === "zh" ? "无匹配结果" : "No matching images"}
-            </span>
-          </div>
-        ) : (
-          <>
-            {visibleRange && <div style={{ height: visibleRange.start * ITEM_HEIGHT, flexShrink: 0 }} />}
+        {visibleRange && <div style={{ height: visibleRange.start * ITEM_HEIGHT, flexShrink: 0 }} />}
             {virtualItems.map(({ path, originalIndex }, vi) => {
               // Folder separator in recursive mode: insert a label
               // when the parent folder differs from the previous item.
               let folderSep = null;
-              if (recursiveRoot && !isSearching) {
+              if (recursiveRoot) {
                 const currFolder = path.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
                 let prevFolder = "";
                 if (vi > 0) {
@@ -423,8 +383,6 @@ export default function Sidebar({
               );
             })}
             {visibleRange && <div style={{ height: totalHeight - (visibleRange.end * ITEM_HEIGHT), flexShrink: 0 }} />}
-          </>
-        )}
       </div>
       <div
         className="sidebar-resize-handle"

@@ -37,7 +37,7 @@
     ],
     "fileAssociations": [
       {
-        "ext": ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "tiff", "tif"],
+        "ext": ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "tiff", "tif", "heic", "heif"],
         "name": "Image",
         "description": "Picture File",
         "role": "Viewer",

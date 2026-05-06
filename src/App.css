@@ -591,11 +591,6 @@ html, body, #root {
   flex-shrink: 0;
 }
 
-.recent-folders--welcome {
-  padding: 16px 12px 12px;
-  border-bottom: none;
-}
-
 .recent-folders-title {
   display: flex;
   align-items: center;
@@ -738,6 +733,26 @@ html, body, #root {
 }
 
 .sidebar-up-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.sidebar-close-folder-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-close-folder-btn:hover {
   background: var(--bg-hover);
   color: var(--accent);
 }

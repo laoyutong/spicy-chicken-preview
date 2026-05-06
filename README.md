@@ -20,7 +20,9 @@ A native macOS image viewer built with Tauri 2 + React 19 + TypeScript. Minimal,
 - **Settings panel** — Centralized preferences for theme, language, slideshow interval, and sidebar width
 - **Recent folders** — Quick access to recently opened folders, persisted across restarts
 - **Responsive toolbar** — Toolbar items collapse into an overflow menu on narrow windows, with hover expansion
-- **File associations** — Opens jpg, jpeg, png, gif, webp, bmp, svg, avif, tiff, tif
+- **File associations** — Opens jpg, jpeg, png, gif, webp, bmp, svg, avif, tiff, tif, heic, heif
+- **Delete confirmation** — Confirmation dialog before moving images to trash to prevent accidental deletion
+- **Keyboard shortcuts help** — Press `?` to see all available shortcuts
 
 ## Keyboard Shortcuts
 
@@ -33,6 +35,10 @@ A native macOS image viewer built with Tauri 2 + React 19 + TypeScript. Minimal,
 | Ctrl/Cmd + - | Zoom out |
 | Ctrl/Cmd + 0 | Reset zoom |
 | Ctrl/Cmd + B | Toggle sidebar |
+| R | Rotate clockwise 90deg |
+| Shift + R | Rotate counterclockwise 90deg |
+| Delete / Backspace | Move to trash |
+| ? | Show keyboard shortcuts |
 
 ## Development
 

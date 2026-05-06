@@ -57,7 +57,7 @@ fn list_folder_contents(folder_path: &str) -> Result<FolderContents, String> {
         .map(|s| s.to_string());
 
     let valid_extensions = [
-        "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "tiff", "tif",
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "tiff", "tif", "heic", "heif",
     ];
 
     let mut images: Vec<String> = Vec::new();
@@ -149,7 +149,7 @@ fn list_recursive_images(folder_path: &str) -> Result<FolderContents, String> {
         .map(|s| s.to_string());
 
     let valid_extensions = [
-        "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "tiff", "tif",
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "tiff", "tif", "heic", "heif",
     ];
 
     let mut images: Vec<String> = Vec::new();
@@ -378,6 +378,24 @@ fn get_images_dimensions(file_paths: Vec<String>) -> Result<Vec<ImageDimensions>
             } else {
                 (0, 0)
             };
+            // HEIC/HEIF fallback: use macOS sips when image crate cannot decode
+            if w == 0 || h == 0 {
+                if let Ok(output) = Command::new("sips")
+                    .arg("-g").arg("pixelWidth")
+                    .arg("-g").arg("pixelHeight")
+                    .arg(path_str)
+                    .output()
+                {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines() {
+                        if let Some(val) = line.trim().strip_prefix("pixelWidth: ") {
+                            w = val.parse().unwrap_or(0);
+                        } else if let Some(val) = line.trim().strip_prefix("pixelHeight: ") {
+                            h = val.parse().unwrap_or(0);
+                        }
+                    }
+                }
+            }
             // Swap dimensions if EXIF orientation includes 90° rotation (5-8)
             if orientation >= 5 && orientation <= 8 && w > 0 && h > 0 {
                 (w, h) = (h, w);
@@ -428,6 +446,24 @@ fn get_images_dimensions(file_paths: Vec<String>) -> Result<Vec<ImageDimensions>
                     } else {
                         (0, 0)
                     };
+                    // HEIC/HEIF fallback: use macOS sips when image crate cannot decode
+                    if w == 0 || h == 0 {
+                        if let Ok(output) = Command::new("sips")
+                            .arg("-g").arg("pixelWidth")
+                            .arg("-g").arg("pixelHeight")
+                            .arg(path_str)
+                            .output()
+                        {
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            for line in stdout.lines() {
+                                if let Some(val) = line.trim().strip_prefix("pixelWidth: ") {
+                                    w = val.parse().unwrap_or(0);
+                                } else if let Some(val) = line.trim().strip_prefix("pixelHeight: ") {
+                                    h = val.parse().unwrap_or(0);
+                                }
+                            }
+                        }
+                    }
                     if orientation >= 5 && orientation <= 8 && w > 0 && h > 0 {
                         (w, h) = (h, w);
                     }
@@ -524,10 +560,39 @@ fn get_thumbnail(app: tauri::AppHandle, file_path: &str, max_size: u32) -> Resul
 
 #[tauri::command]
 fn copy_image_to_clipboard(file_path: &str) -> Result<(), String> {
-    let img = image::ImageReader::open(file_path)
-        .map_err(|e| format!("Failed to open image: {}", e))?
-        .decode()
-        .map_err(|e| format!("Failed to decode image: {}", e))?;
+    let path = std::path::Path::new(file_path);
+    let is_heic = path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("heic") || e.eq_ignore_ascii_case("heif"))
+        .unwrap_or(false);
+
+    let img = if is_heic {
+        // HEIC/HEIF: convert to temp PNG via sips, then decode with image crate
+        let temp_path = std::env::temp_dir()
+            .join(format!("spicy_clipboard_{}.png", std::process::id()));
+        let output = Command::new("sips")
+            .arg("-s").arg("format").arg("png")
+            .arg(file_path)
+            .arg("--out").arg(&temp_path)
+            .output()
+            .map_err(|e| format!("Failed to run sips: {}", e))?;
+        if !output.status.success() {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(format!("sips conversion failed: {}",
+                String::from_utf8_lossy(&output.stderr)));
+        }
+        let result = image::ImageReader::open(&temp_path)
+            .map_err(|e| format!("Failed to open converted image: {}", e))?
+            .decode()
+            .map_err(|e| format!("Failed to decode converted image: {}", e))?;
+        let _ = std::fs::remove_file(&temp_path);
+        result
+    } else {
+        image::ImageReader::open(file_path)
+            .map_err(|e| format!("Failed to open image: {}", e))?
+            .decode()
+            .map_err(|e| format!("Failed to decode image: {}", e))?
+    };
     let rgba = img.to_rgba8();
     let (width, height) = rgba.dimensions();
     let data = rgba.into_raw();

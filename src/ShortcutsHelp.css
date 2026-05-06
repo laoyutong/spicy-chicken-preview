@@ -1,28 +1,28 @@
-.settings-backdrop {
+.shortcuts-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 500;
+  z-index: 501;
   display: flex;
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
-  animation: settings-backdrop-in 0.18s ease-out;
+  animation: shortcuts-backdrop-in 0.18s ease-out;
 }
 
-[data-theme="light"] .settings-backdrop {
+[data-theme="light"] .shortcuts-backdrop {
   background: rgba(0, 0, 0, 0.15);
 }
 
-@keyframes settings-backdrop-in {
+@keyframes shortcuts-backdrop-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
-.settings-modal {
+.shortcuts-modal {
   position: relative;
-  width: 380px;
+  width: 480px;
   max-width: calc(100vw - 40px);
   max-height: calc(100vh - 60px);
   overflow-y: auto;
@@ -31,14 +31,14 @@
   border-radius: 10px;
   padding: 24px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
-  animation: settings-modal-in 0.18s ease-out;
+  animation: shortcuts-modal-in 0.18s ease-out;
 }
 
-[data-theme="light"] .settings-modal {
+[data-theme="light"] .shortcuts-modal {
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12);
 }
 
-@keyframes settings-modal-in {
+@keyframes shortcuts-modal-in {
   from {
     opacity: 0;
     transform: scale(0.96);
@@ -49,21 +49,21 @@
   }
 }
 
-.settings-header {
+.shortcuts-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
-.settings-title {
+.shortcuts-title {
   font-family: var(--font-serif);
   font-size: 18px;
   font-style: italic;
   color: var(--text-primary);
 }
 
-.settings-close-btn {
+.shortcuts-close-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -77,78 +77,92 @@
   transition: background 0.18s ease, color 0.18s ease;
 }
 
-.settings-close-btn:hover {
+.shortcuts-close-btn:hover {
   background: var(--bg-hover);
   color: var(--accent);
 }
 
-.settings-section {
-  margin-bottom: 18px;
-}
-
-.settings-section-label {
-  display: block;
+.shortcuts-section-label {
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 500;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
-.settings-btn-group {
+.shortcuts-list {
   display: flex;
-  gap: 0;
+  flex-direction: column;
 }
 
-.settings-seg-btn {
+.shortcuts-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.shortcuts-row:last-child {
+  border-bottom: none;
+}
+
+.shortcuts-keys {
   display: flex;
   align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.shortcuts-keys kbd {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--border-subtle);
-  border-right: none;
-  background: transparent;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  background: var(--bg-active);
   color: var(--text-secondary);
-  cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 12px;
-  letter-spacing: 0.2px;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
 }
 
-.settings-seg-btn:first-child {
-  border-radius: 4px 0 0 4px;
+.shortcuts-plus {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin: 0 1px;
 }
 
-.settings-seg-btn:last-child {
-  border-radius: 0 4px 4px 0;
-  border-right: 1px solid var(--border-subtle);
+.shortcuts-or {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin: 0 3px;
 }
 
-.settings-seg-btn:hover {
-  background: var(--bg-hover);
-  color: var(--accent);
-  border-color: var(--border-default);
+.shortcuts-desc {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: right;
+  flex-shrink: 0;
+  margin-left: 16px;
 }
 
-.settings-seg-btn.selected {
-  color: var(--accent);
-  background: var(--accent-dim);
-  border-color: var(--accent-border);
-}
-
-.settings-modal::-webkit-scrollbar {
+.shortcuts-modal::-webkit-scrollbar {
   width: 4px;
 }
 
-.settings-modal::-webkit-scrollbar-track {
+.shortcuts-modal::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.settings-modal::-webkit-scrollbar-thumb {
+.shortcuts-modal::-webkit-scrollbar-thumb {
   background: var(--border-default);
   border-radius: 2px;
 }

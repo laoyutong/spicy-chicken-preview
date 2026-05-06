@@ -36,13 +36,14 @@ interface UseToolbarItemsParams {
   setSortDropdownOpen: Dispatch<SetStateAction<boolean>>;
   setSidebarVisible: Dispatch<SetStateAction<boolean>>;
   setSettingsOpen: Dispatch<SetStateAction<boolean>>;
+  setShortcutsOpen: Dispatch<SetStateAction<boolean>>;
 }
 
 function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
   const {
     language, showExtras, sidebarVisible, fileName,
     sortBy, sortOrder, sortDropdownOpen, filterMode, setFilterMode, filterDropdownOpen, setFilterDropdownOpen, filterDropdownRef,
-    openFile, setSortBy, setSortDropdownOpen, setSortOrder, setSidebarVisible,
+    openFile, setSortBy, setSortDropdownOpen, setSortOrder, setSidebarVisible, setShortcutsOpen,
   } = params;
 
   return useMemo((): ToolbarItemDef[] => {
@@ -66,6 +67,27 @@ function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
           {t("toolbar.openImage", language)}
+        </button>
+      ),
+    });
+
+    items.push({
+      id: "shortcuts", section: "left", priority: 0, condition: true,
+      renderToolbar: () => (
+        <button className="toolbar-btn" onClick={() => setShortcutsOpen(true)} title={t("shortcuts.title", language)}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M6 16h.01M10 16h.01M14 16h.01" />
+          </svg>
+        </button>
+      ),
+      renderMenu: () => (
+        <button className="toolbar-more-item" onClick={() => setShortcutsOpen(true)}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01" />
+          </svg>
+          {t("shortcuts.title", language)}
         </button>
       ),
     });
@@ -199,7 +221,7 @@ function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
     });
 
     return items;
-  }, [language, showExtras, sidebarVisible, fileName, sortBy, sortOrder, sortDropdownOpen, filterMode, setFilterMode, filterDropdownOpen, setFilterDropdownOpen, filterDropdownRef, openFile, setSortBy, setSortDropdownOpen, setSortOrder, setSidebarVisible]);
+  }, [language, showExtras, sidebarVisible, fileName, sortBy, sortOrder, sortDropdownOpen, filterMode, setFilterMode, filterDropdownOpen, setFilterDropdownOpen, filterDropdownRef, openFile, setSortBy, setSortDropdownOpen, setSortOrder, setSidebarVisible, setShortcutsOpen]);
 }
 
 function ToolbarCenterItems(params: UseToolbarItemsParams): ToolbarItemDef[] {

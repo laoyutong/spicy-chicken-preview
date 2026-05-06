@@ -10,6 +10,8 @@ import { Toolbar } from "./Toolbar";
 import { useToolbarItems } from "./ToolbarItems";
 import { LRUImageCache } from "./lruImageCache";
 import SettingsModal from "./SettingsModal";
+import ShortcutsHelp from "./ShortcutsHelp";
+import ConfirmDialog from "./ConfirmDialog";
 import { useSlideshow } from "./hooks/useSlideshow";
 import { useFullscreen } from "./hooks/useFullscreen";
 import { useWindowState } from "./hooks/useWindowState";
@@ -73,6 +75,8 @@ function App() {
   const [theme, setTheme] = useState<"dark" | "light">(loadTheme);
   const [language, setLanguage] = useState<Language>(loadLanguage);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ mode: "single" | "batch" } | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [loading, setLoading] = useState(false);
 
@@ -687,7 +691,7 @@ function App() {
       filters: [{
         name: "Images",
         extensions: [
-          "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "tiff", "tif",
+          "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "tiff", "tif", "heic", "heif",
         ],
       }],
     });
@@ -837,6 +841,9 @@ function App() {
         e.preventDefault();
         resetSlideshowInterval();
         navigate(1);
+      } else if (e.key === "?" && !(e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setShortcutsOpen(true);
       } else if (e.key === "0") {
         // 0 or Cmd/Ctrl+0: reset zoom
         e.preventDefault();
@@ -862,8 +869,8 @@ function App() {
         e.preventDefault();
         setSidebarVisible(v => !v);
       } else if (e.key === "Escape") {
-        if (settingsOpen) {
-          // Handled by SettingsModal's own keydown listener
+        if (settingsOpen || shortcutsOpen || deleteConfirm) {
+          // Handled by respective modal's own keydown listener
           return;
         }
         if (isImmersive) {
@@ -889,14 +896,17 @@ function App() {
         pz.setRotation((r) => (r + 270) % 360);
         pz.resetView();
       } else if (e.key === "Delete" || e.key === "Backspace") {
-        // Delete/Backspace: move to trash
         e.preventDefault();
-        fileOps.handleMoveToTrash();
+        if (selectedIndices.size > 0) {
+          setDeleteConfirm({ mode: "batch" });
+        } else {
+          setDeleteConfirm({ mode: "single" });
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, pz.resetView, pz.zoomToward, toggleNativeFullscreen, isImmersive, settingsOpen, imageUrl, fileOps.handleMoveToTrash, fileOps.copyImage]);
+  }, [navigate, pz.resetView, pz.zoomToward, toggleNativeFullscreen, isImmersive, settingsOpen, shortcutsOpen, deleteConfirm, selectedIndices, imageUrl, fileOps.copyImage]);
 
   const loadOpenedFile = useCallback(
     async (filePath: string) => {
@@ -1026,6 +1036,7 @@ function App() {
     setSortDropdownOpen: meta.setSortDropdownOpen,
     setSidebarVisible,
     setSettingsOpen,
+    setShortcutsOpen,
   });
 
   // Cancel animations and timers on unmount
@@ -1070,9 +1081,20 @@ function App() {
         selectedIndices={selectedIndices}
         onSelectedIndicesChange={setSelectedIndices}
         onBatchDelete={fileOps.handleBatchDelete}
+        onRequestBatchDelete={() => setDeleteConfirm({ mode: "batch" })}
         recursiveRoot={recursiveRoot}
         onRecursivePlay={(path) => {
           loadRecursiveFolder(path);
+        }}
+        onCloseFolder={() => {
+          setRecursiveRoot(null);
+          setImages([]);
+          setCurrentIndex(0);
+          setImageUrl(null);
+          setCurrentFile(null);
+          setCurrentFolder(null);
+          setSubdirs([]);
+          sourceImg.current = null;
         }}
       />
       <div className="viewer-right">
@@ -1218,6 +1240,37 @@ function App() {
         onSlideshowIntervalChange={setSlideshowInterval}
       />
 
+      <ShortcutsHelp
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+        language={language}
+      />
+
+      {deleteConfirm && (
+        <ConfirmDialog
+          open={true}
+          title={t("confirm.delete.title", language)}
+          message={
+            deleteConfirm.mode === "batch"
+              ? t("confirm.delete.batch", language).replace("{count}", String(selectedIndices.size))
+              : t("confirm.delete.single", language)
+          }
+          confirmLabel={t("confirm.delete.confirm", language)}
+          cancelLabel={t("confirm.delete.cancel", language)}
+          danger
+          onConfirm={() => {
+            const mode = deleteConfirm.mode;
+            setDeleteConfirm(null);
+            if (mode === "single") {
+              fileOps.handleMoveToTrash();
+            } else {
+              fileOps.handleBatchDelete();
+            }
+          }}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+
       {fileOps.contextMenu && currentFile && (
         <div
           className="context-menu"
@@ -1240,7 +1293,7 @@ function App() {
             {t("context.revealInFinder", language)}
           </button>
           <div className="context-menu-divider" />
-          <button className="context-menu-item context-menu-item--danger" onClick={fileOps.handleMoveToTrash}>
+          <button className="context-menu-item context-menu-item--danger" onClick={() => { fileOps.setContextMenu(null); setDeleteConfirm({ mode: "single" }); }}>
             {t("context.moveToTrash", language)}
           </button>
         </div>
