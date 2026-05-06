@@ -16,10 +16,13 @@ export function clampPan(
   rotation: number = 0,
 ): { x: number; y: number } {
   if (imgW <= 0 || imgH <= 0 || cw <= 0 || ch <= 0) return { x: 0, y: 0 };
+  // For 90/270 rotation, the canvas coordinate system is rotated so the
+  // visual container appears swapped. Fit original image into swapped container
+  // to match the draw logic in App.tsx.
   const isSwapped = rotation === 90 || rotation === 270;
-  const ew = isSwapped ? imgH : imgW;
-  const eh = isSwapped ? imgW : imgH;
-  const { fw, fh } = getFittedSize(ew, eh, cw, ch);
+  const fitW = isSwapped ? ch : cw;
+  const fitH = isSwapped ? cw : ch;
+  const { fw, fh } = getFittedSize(imgW, imgH, fitW, fitH);
   const sw = fw * zoomVal;
   const sh = fh * zoomVal;
   const maxX = Math.abs(sw - cw) / 2;

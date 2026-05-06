@@ -267,10 +267,15 @@ function App() {
     const py = pz.panYRef.current;
     const rot = pz.rotation;
 
-    // Effective dimensions after rotation
+    // When rotated 90/270, the canvas rotation transforms the coordinate
+    // system, so the container appears swapped. Compute fitted size using
+    // the original image dimensions matched against the swapped container.
     const isSwapped = rot === 90 || rot === 270;
-    const ew = isSwapped ? ih : iw;
-    const eh = isSwapped ? iw : ih;
+    const fitW = isSwapped ? ch : cw;
+    const fitH = isSwapped ? cw : ch;
+    const { fw, fh } = getFittedSize(iw, ih, fitW, fitH);
+    const sw = fw * z;
+    const sh = fh * z;
 
     // Apply rotation around container center
     if (rot !== 0) {
@@ -279,10 +284,6 @@ function App() {
       ctx.rotate((rot * Math.PI) / 180);
       ctx.translate(-cw / 2, -ch / 2);
     }
-
-    const { fw, fh } = getFittedSize(ew, eh, cw, ch);
-    const sw = fw * z;
-    const sh = fh * z;
 
     // Top-left of the scaled image in viewport coordinates
     const imgLeft = cw / 2 - sw / 2 + px;
@@ -304,7 +305,8 @@ function App() {
         ctx.drawImage(img, sL, sT, sW, sH, vL, vT, vW, vH);
       }
     } else {
-      // For 90/270, draw the full image using canvas transform (no sub-rect clipping needed)
+      // For 90/270, draw the full image (no sub-rect clipping —
+      // the coordinate system is already rotated by the canvas transform)
       ctx.drawImage(img, imgLeft, imgTop, sw, sh);
     }
 
@@ -1178,7 +1180,9 @@ function App() {
           <div className="status-bar-left">
             {imageDimensions && (
               <span className="status-item">
-                {imageDimensions.w} × {imageDimensions.h}
+                {pz.rotation % 180 === 0
+                  ? `${imageDimensions.w} × ${imageDimensions.h}`
+                  : `${imageDimensions.h} × ${imageDimensions.w}`}
               </span>
             )}
             {fileSize !== null && (
