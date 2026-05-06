@@ -3638,6 +3638,7 @@ dependencies = [
  "tauri-plugin-opener",
  "trash",
  "urlencoding",
+ "walkdir",
  "xxhash-rust",
 ]
 

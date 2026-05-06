@@ -7,6 +7,7 @@ use std::sync::{Condvar, Mutex};
 use std::time::SystemTime;
 use tauri::Emitter;
 use tauri::Manager;
+use walkdir::WalkDir;
 
 static PENDING_FILE: Mutex<Option<String>> = Mutex::new(None);
 
@@ -70,8 +71,9 @@ fn list_folder_contents(folder_path: &str) -> Result<FolderContents, String> {
     for entry in entries {
         let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
         let entry_path = entry.path();
+        let metadata = entry.metadata().ok();
 
-        if entry_path.is_dir() {
+        if metadata.as_ref().map_or(false, |m| m.is_dir()) {
             if let Some(name) = entry_path.file_name().and_then(|n| n.to_str()) {
                 if !name.starts_with('.') {
                     subdirs.push(SubdirInfo {
@@ -80,11 +82,11 @@ fn list_folder_contents(folder_path: &str) -> Result<FolderContents, String> {
                     });
                 }
             }
-        } else if entry_path.is_file() {
+        } else if metadata.as_ref().map_or(false, |m| m.is_file()) {
             if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
                 if valid_extensions.contains(&ext.to_lowercase().as_str()) {
                     let path_str = entry_path.to_string_lossy().to_string();
-                    let (file_size, file_modified) = std::fs::metadata(&entry_path)
+                    let (file_size, file_modified) = metadata
                         .map(|m| {
                             let modified = m
                                 .modified()
@@ -148,52 +150,51 @@ fn list_recursive_images(folder_path: &str) -> Result<FolderContents, String> {
         .and_then(|p| p.to_str())
         .map(|s| s.to_string());
 
-    let valid_extensions = [
+    let valid_extensions: std::collections::HashSet<&str> = [
         "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "tiff", "tif", "heic", "heif",
-    ];
+    ]
+    .iter()
+    .copied()
+    .collect();
 
     let mut images: Vec<String> = Vec::new();
     let mut image_infos: Vec<ImageMeta> = Vec::new();
 
-    // Recursively collect images from folder_path and all nested subdirs
-    let mut dirs_to_visit = vec![path.to_path_buf()];
-    while let Some(dir) = dirs_to_visit.pop() {
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            let entry_path = entry.path();
-            if entry_path.is_dir() {
-                if let Some(name) = entry_path.file_name().and_then(|n| n.to_str()) {
-                    if !name.starts_with('.') {
-                        dirs_to_visit.push(entry_path);
-                    }
-                }
-            } else if entry_path.is_file() {
-                if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
-                    if valid_extensions.contains(&ext.to_lowercase().as_str()) {
-                        let path_str = entry_path.to_string_lossy().to_string();
-                        let (file_size, file_modified) = std::fs::metadata(&entry_path)
-                            .map(|m| {
-                                let modified = m
-                                    .modified()
-                                    .ok()
-                                    .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
-                                    .map(|d| d.as_secs())
-                                    .unwrap_or(0);
-                                (m.len(), modified)
-                            })
-                            .unwrap_or((0, 0));
-                        image_infos.push(ImageMeta {
-                            path: path_str.clone(),
-                            size: file_size,
-                            extension: ext.to_uppercase(),
-                            modified: file_modified,
-                        });
-                        images.push(path_str);
-                    }
-                }
+    for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
+        // Skip hidden directories
+        if entry.file_type().is_dir() {
+            if entry.file_name().to_str().map_or(false, |n| n.starts_with('.')) {
+                continue;
+            }
+            continue;
+        }
+
+        if !entry.file_type().is_file() {
+            continue;
+        }
+
+        let entry_path = entry.path();
+        if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
+            if valid_extensions.contains(&ext.to_lowercase().as_str()) {
+                let path_str = entry_path.to_string_lossy().to_string();
+                let (file_size, file_modified) = entry.metadata().ok()
+                    .map(|m| {
+                        let modified = m
+                            .modified()
+                            .ok()
+                            .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        (m.len(), modified)
+                    })
+                    .unwrap_or((0, 0));
+                image_infos.push(ImageMeta {
+                    path: path_str.clone(),
+                    size: file_size,
+                    extension: ext.to_uppercase(),
+                    modified: file_modified,
+                });
+                images.push(path_str);
             }
         }
     }
@@ -593,26 +594,22 @@ fn copy_image_to_clipboard(file_path: &str) -> Result<(), String> {
         .unwrap_or(false);
 
     let img = if is_heic {
-        // HEIC/HEIF: convert to temp PNG via sips, then decode with image crate
-        let temp_path = std::env::temp_dir()
-            .join(format!("spicy_clipboard_{}.png", std::process::id()));
+        // HEIC/HEIF: convert to PNG via sips, pipe through stdout to avoid temp file
         let output = Command::new("sips")
             .arg("-s").arg("format").arg("png")
             .arg(file_path)
-            .arg("--out").arg(&temp_path)
+            .arg("--out").arg("/dev/stdout")
             .output()
             .map_err(|e| format!("Failed to run sips: {}", e))?;
         if !output.status.success() {
-            let _ = std::fs::remove_file(&temp_path);
             return Err(format!("sips conversion failed: {}",
                 String::from_utf8_lossy(&output.stderr)));
         }
-        let result = image::ImageReader::open(&temp_path)
-            .map_err(|e| format!("Failed to open converted image: {}", e))?
+        image::ImageReader::new(std::io::Cursor::new(output.stdout))
+            .with_guessed_format()
+            .map_err(|e| format!("Failed to detect format: {}", e))?
             .decode()
-            .map_err(|e| format!("Failed to decode converted image: {}", e))?;
-        let _ = std::fs::remove_file(&temp_path);
-        result
+            .map_err(|e| format!("Failed to decode converted image: {}", e))?
     } else {
         image::ImageReader::open(file_path)
             .map_err(|e| format!("Failed to open image: {}", e))?
@@ -649,6 +646,21 @@ fn reveal_in_finder(file_path: &str) -> Result<(), String> {
 fn move_to_trash(file_path: &str) -> Result<(), String> {
     trash::delete(file_path).map_err(|e| format!("Failed to move to trash: {}", e))?;
     Ok(())
+}
+
+#[tauri::command]
+fn move_to_trash_batch(file_paths: Vec<String>) -> Result<(), String> {
+    let mut errors: Vec<String> = Vec::new();
+    for path in &file_paths {
+        if let Err(e) = trash::delete(path) {
+            errors.push(format!("{}: {}", path, e));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
+    }
 }
 
 #[tauri::command]
@@ -729,6 +741,7 @@ pub fn run() {
             copy_image_to_clipboard,
             reveal_in_finder,
             move_to_trash,
+            move_to_trash_batch,
             set_desktop_background,
             keep_awake
         ])

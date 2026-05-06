@@ -141,6 +141,7 @@ function App() {
     imgW, imgH,
     setPanX: pz.setPanX, setPanY: pz.setPanY,
     zoomToward: pz.zoomToward,
+    containerRectRef: pz.containerRectRef,
   });
 
   // Refs for slideshow auto-advance (avoid stale closures in setInterval)
@@ -303,19 +304,24 @@ function App() {
     const imgTop = ch / 2 - sh / 2 + py;
 
     if (rot === 0 || rot === 180) {
-      // Clipped visible rectangle in viewport
-      const vL = Math.max(0, imgLeft);
-      const vT = Math.max(0, imgTop);
-      const vR = Math.min(cw, imgLeft + sw);
-      const vB = Math.min(ch, imgTop + sh);
-      const vW = vR - vL;
-      const vH = vB - vT;
-      if (vW > 0 && vH > 0) {
-        const sL = (vL - imgLeft) / sw * iw;
-        const sT = (vT - imgTop) / sh * ih;
-        const sW = vW / sw * iw;
-        const sH = vH / sh * ih;
-        ctx.drawImage(img, sL, sT, sW, sH, vL, vT, vW, vH);
+      // Fast-path: image fits entirely in viewport, no clipping needed
+      if (sw <= cw && sh <= ch) {
+        ctx.drawImage(img, imgLeft, imgTop, sw, sh);
+      } else {
+        // Clipped visible rectangle in viewport
+        const vL = Math.max(0, imgLeft);
+        const vT = Math.max(0, imgTop);
+        const vR = Math.min(cw, imgLeft + sw);
+        const vB = Math.min(ch, imgTop + sh);
+        const vW = vR - vL;
+        const vH = vB - vT;
+        if (vW > 0 && vH > 0) {
+          const sL = (vL - imgLeft) / sw * iw;
+          const sT = (vT - imgTop) / sh * ih;
+          const sW = vW / sw * iw;
+          const sH = vH / sh * ih;
+          ctx.drawImage(img, sL, sT, sW, sH, vL, vT, vW, vH);
+        }
       }
     } else {
       // For 90/270, draw the full image (no sub-rect clipping —
@@ -840,91 +846,94 @@ function App() {
     try { localStorage.setItem("language", language); } catch { /* ignore */ }
   }, [language]);
 
-  // Keyboard
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Space: toggle slideshow (only if an image is loaded)
-      if (e.key === " ") {
-        if (imageUrl) {
-          e.preventDefault();
-          setSlideshowActive((a) => !a);
-        }
+  // Keyboard — stable listener, reads latest state from ref to avoid re-registration churn
+  const keyboardRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyboardRef.current = (e: KeyboardEvent) => {
+    // Space: toggle slideshow (only if an image is loaded)
+    if (e.key === " ") {
+      if (imageUrl) {
+        e.preventDefault();
+        setSlideshowActive((a) => !a);
+      }
+      return;
+    }
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      resetSlideshowInterval();
+      if (isImmersive) { slideshowAdvance(-1); } else { navigate(-1); }
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      resetSlideshowInterval();
+      if (isImmersive) { slideshowAdvance(1); } else { navigate(1); }
+    } else if (e.key === "?" && !(e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      setShortcutsOpen(true);
+    } else if (e.key === "0") {
+      // 0 or Cmd/Ctrl+0: reset zoom
+      e.preventDefault();
+      pz.resetView();
+    } else if ((e.key === "=" || e.key === "+") && (e.metaKey || e.ctrlKey)) {
+      // Cmd/Ctrl + =/+ : zoom in
+      e.preventDefault();
+      const el = imageAreaRef.current;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        pz.zoomToward(r.width / 2, r.height / 2, pz.ZOOM_STEP * 2);
+      }
+    } else if (e.key === "-" && (e.metaKey || e.ctrlKey)) {
+      // Cmd/Ctrl + - : zoom out
+      e.preventDefault();
+      const el = imageAreaRef.current;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        pz.zoomToward(r.width / 2, r.height / 2, -pz.ZOOM_STEP * 2);
+      }
+    } else if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
+      // Cmd/Ctrl + B : toggle sidebar
+      e.preventDefault();
+      setSidebarVisible(v => !v);
+    } else if (e.key === "Escape") {
+      if (settingsOpen || shortcutsOpen || deleteConfirm) {
+        // Handled by respective modal's own keydown listener
         return;
       }
-      if (e.key === "ArrowLeft") {
+      if (isImmersive) {
         e.preventDefault();
-        resetSlideshowInterval();
-        if (isImmersive) { slideshowAdvance(-1); } else { navigate(-1); }
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        resetSlideshowInterval();
-        if (isImmersive) { slideshowAdvance(1); } else { navigate(1); }
-      } else if (e.key === "?" && !(e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setShortcutsOpen(true);
-      } else if (e.key === "0") {
-        // 0 or Cmd/Ctrl+0: reset zoom
-        e.preventDefault();
-        pz.resetView();
-      } else if ((e.key === "=" || e.key === "+") && (e.metaKey || e.ctrlKey)) {
-        // Cmd/Ctrl + =/+ : zoom in
-        e.preventDefault();
-        const el = imageAreaRef.current;
-        if (el) {
-          const r = el.getBoundingClientRect();
-          pz.zoomToward(r.width / 2, r.height / 2, pz.ZOOM_STEP * 2);
-        }
-      } else if (e.key === "-" && (e.metaKey || e.ctrlKey)) {
-        // Cmd/Ctrl + - : zoom out
-        e.preventDefault();
-        const el = imageAreaRef.current;
-        if (el) {
-          const r = el.getBoundingClientRect();
-          pz.zoomToward(r.width / 2, r.height / 2, -pz.ZOOM_STEP * 2);
-        }
-      } else if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
-        // Cmd/Ctrl + B : toggle sidebar
-        e.preventDefault();
-        setSidebarVisible(v => !v);
-      } else if (e.key === "Escape") {
-        if (settingsOpen || shortcutsOpen || deleteConfirm) {
-          // Handled by respective modal's own keydown listener
-          return;
-        }
-        if (isImmersive) {
-          e.preventDefault();
-          setIsImmersive(false);
-        }
-      } else if (e.key === "f" || e.key === "F") {
-        // F: toggle native window fullscreen
-        e.preventDefault();
-        toggleNativeFullscreen();
-      } else if ((e.key === "c" || e.key === "C") && (e.metaKey || e.ctrlKey)) {
-        // Cmd/Ctrl+C: copy image to clipboard
-        e.preventDefault();
-        fileOps.copyImage();
-      } else if ((e.key === "r" || e.key === "R") && !(e.metaKey || e.ctrlKey || e.shiftKey)) {
-        // R: rotate clockwise 90°
-        e.preventDefault();
-        pz.setRotation((r) => (r + 90) % 360);
-        pz.resetView();
-      } else if ((e.key === "R") && e.shiftKey) {
-        // Shift+R: rotate counterclockwise 90°
-        e.preventDefault();
-        pz.setRotation((r) => (r + 270) % 360);
-        pz.resetView();
-      } else if (e.key === "Delete" || e.key === "Backspace") {
-        e.preventDefault();
-        if (selectedIndices.size > 0) {
-          setDeleteConfirm({ mode: "batch" });
-        } else {
-          setDeleteConfirm({ mode: "single" });
-        }
+        setIsImmersive(false);
       }
-    };
+    } else if (e.key === "f" || e.key === "F") {
+      // F: toggle native window fullscreen
+      e.preventDefault();
+      toggleNativeFullscreen();
+    } else if ((e.key === "c" || e.key === "C") && (e.metaKey || e.ctrlKey)) {
+      // Cmd/Ctrl+C: copy image to clipboard
+      e.preventDefault();
+      fileOps.copyImage();
+    } else if ((e.key === "r" || e.key === "R") && !(e.metaKey || e.ctrlKey || e.shiftKey)) {
+      // R: rotate clockwise 90°
+      e.preventDefault();
+      pz.setRotation((r) => (r + 90) % 360);
+      pz.resetView();
+    } else if ((e.key === "R") && e.shiftKey) {
+      // Shift+R: rotate counterclockwise 90°
+      e.preventDefault();
+      pz.setRotation((r) => (r + 270) % 360);
+      pz.resetView();
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      if (selectedIndices.size > 0) {
+        setDeleteConfirm({ mode: "batch" });
+      } else {
+        setDeleteConfirm({ mode: "single" });
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => keyboardRef.current(e);
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, slideshowAdvance, pz.resetView, pz.zoomToward, toggleNativeFullscreen, isImmersive, settingsOpen, shortcutsOpen, deleteConfirm, selectedIndices, imageUrl, fileOps.copyImage]);
+  }, []);
 
   const loadOpenedFile = useCallback(
     async (filePath: string) => {

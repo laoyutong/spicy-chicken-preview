@@ -20,8 +20,8 @@ const MODE_ICONS: Record<string, string> = {
 
 const ITEM_WIDTH = 62;   // 56px thumbnail + 6px gap
 const THUMB_WIDTH = 56;
-const WINDOW = 30;       // render ±30 items around current index
-const EAGER_WINDOW = 8;  // eager-load ±8 items around current index
+const OVERSCAN = 20;       // render extra items beyond visible range
+const EAGER_WINDOW = 8;    // eager-load ±8 items around current index
 
 const FullscreenStrip = memo(function FullscreenStrip({
   images, currentIndex, onSelect,
@@ -43,6 +43,41 @@ const FullscreenStrip = memo(function FullscreenStrip({
 
   const mountedRef = useRef(false);
 
+  // ── Scroll-position-based virtualization ─────────────────────────
+
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [stripWidth, setStripWidth] = useState(0);
+
+  // Observe strip dimensions
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const ro = new ResizeObserver(() => setStripWidth(strip.clientWidth));
+    ro.observe(strip);
+    return () => ro.disconnect();
+  }, []);
+
+  // Handle scroll events — rAF batched
+  const scrollRafRef = useRef(0);
+  const onScroll = useCallback(() => {
+    if (scrollRafRef.current) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = 0;
+      if (stripRef.current) setScrollLeft(stripRef.current.scrollLeft);
+    });
+  }, []);
+
+  // Compute visible range from scroll position
+  const { winStart, winEnd, visibleImages } = useMemo(() => {
+    const effectiveWidth = Math.max(stripWidth, 400); // fallback
+    const start = Math.max(0, Math.floor(scrollLeft / ITEM_WIDTH) - OVERSCAN);
+    const end = Math.min(images.length, Math.ceil((scrollLeft + effectiveWidth) / ITEM_WIDTH) + OVERSCAN);
+    const slice = images.slice(start, end);
+    return { winStart: start, winEnd: end, visibleImages: slice };
+  }, [images, scrollLeft, stripWidth]);
+
+  // ── Auto-center on currentIndex ──────────────────────────────────
+
   // Snap to current item on mount (before paint), smooth-scroll on short jumps,
   // instant-snap on long jumps (typical in shuffle slideshow).
   useLayoutEffect(() => {
@@ -54,6 +89,7 @@ const FullscreenStrip = memo(function FullscreenStrip({
     if (!mountedRef.current) {
       mountedRef.current = true;
       strip.scrollLeft = Math.max(0, target);
+      setScrollLeft(strip.scrollLeft);
       return;
     }
 
@@ -61,11 +97,11 @@ const FullscreenStrip = memo(function FullscreenStrip({
     const distance = target - start;
     if (Math.abs(distance) < 4) return;
 
-    const stripWidth = strip.offsetWidth;
+    const stripW = strip.offsetWidth;
     // If the target is more than 2 viewport-widths away, snap instantly.
-    // This handles shuffle-mode large jumps without a disorienting flying animation.
-    if (Math.abs(distance) > stripWidth * 2) {
+    if (Math.abs(distance) > stripW * 2) {
       strip.scrollLeft = Math.max(0, target);
+      setScrollLeft(strip.scrollLeft);
       return;
     }
 
@@ -78,6 +114,7 @@ const FullscreenStrip = memo(function FullscreenStrip({
       const t = Math.min(elapsed / duration, 1);
       const eased = 1 - Math.pow(1 - t, 3);
       el.scrollLeft = start + distance * eased;
+      setScrollLeft(el.scrollLeft);
       if (t < 1) requestAnimationFrame(animate);
     }
     requestAnimationFrame(animate);
@@ -112,14 +149,6 @@ const FullscreenStrip = memo(function FullscreenStrip({
     [images],
   );
 
-  // Virtualization: only render thumbnails within a window around currentIndex
-  const { winStart, winEnd, visibleImages } = useMemo(() => {
-    const start = Math.max(0, currentIndex - WINDOW);
-    const end = Math.min(images.length, currentIndex + WINDOW + 1);
-    const slice = images.slice(start, end);
-    return { winStart: start, winEnd: end, visibleImages: slice };
-  }, [images, currentIndex]);
-
   if (images.length === 0) return null;
 
   return (
@@ -134,7 +163,7 @@ const FullscreenStrip = memo(function FullscreenStrip({
         hideTimer.current = setTimeout(() => setVisible(false), 1000);
       }}
     >
-      <div className="fullscreen-strip-list" ref={stripRef}>
+      <div className="fullscreen-strip-list" ref={stripRef} onScroll={onScroll}>
         {/* Leading spacer for virtualized items */}
         {winStart > 0 && (
           <div style={{ minWidth: winStart * ITEM_WIDTH, flexShrink: 0 }} />

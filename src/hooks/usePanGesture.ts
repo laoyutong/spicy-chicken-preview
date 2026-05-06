@@ -14,11 +14,13 @@ interface UsePanGestureParams {
   setPanX: Dispatch<SetStateAction<number>>;
   setPanY: Dispatch<SetStateAction<number>>;
   zoomToward: (cx: number, cy: number, step: number) => void;
+  /** Cached container rect from draw() to avoid getBoundingClientRect forced layouts */
+  containerRectRef: MutableRefObject<{ width: number; height: number } | null>;
 }
 
 export function usePanGesture({
   imageAreaRef, zoomRef, panXRef, panYRef, rotationRef,
-  imgW, imgH, setPanX, setPanY, zoomToward,
+  imgW, imgH, setPanX, setPanY, zoomToward, containerRectRef,
 }: UsePanGestureParams) {
   const [dragging, setDragging] = useState(false);
   const isPanning = useRef(false);
@@ -43,10 +45,11 @@ export function usePanGesture({
         zoomToward(e.clientX, e.clientY, step);
       } else {
         if (momentumRaf.current) { cancelAnimationFrame(momentumRaf.current); momentumRaf.current = 0; }
-        const rect = imageAreaRef.current.getBoundingClientRect();
+        const cr = containerRectRef.current ?? imageAreaRef.current?.getBoundingClientRect();
+        if (!cr) return;
         const newX = panXRef.current - e.deltaX;
         const newY = panYRef.current - e.deltaY;
-        const c = clampPan(newX, newY, zoomRef.current, imgW.current, imgH.current, rect.width, rect.height, rotationRef.current);
+        const c = clampPan(newX, newY, zoomRef.current, imgW.current, imgH.current, cr.width, cr.height, rotationRef.current);
         setPanX(c.x);
         setPanY(c.y);
       }
@@ -82,12 +85,11 @@ export function usePanGesture({
     if (!hasPanned.current && dist < PAN_DEAD_ZONE) return;
     if (!hasPanned.current) { hasPanned.current = true; setDragging(true); }
 
-    const el = imageAreaRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
+    const cr = containerRectRef.current ?? imageAreaRef.current?.getBoundingClientRect();
+    if (!cr) return;
     const newX = panStart.current.panX + dx;
     const newY = panStart.current.panY + dy;
-    const c = clampPan(newX, newY, zoomRef.current, imgW.current, imgH.current, rect.width, rect.height, rotationRef.current);
+    const c = clampPan(newX, newY, zoomRef.current, imgW.current, imgH.current, cr.width, cr.height, rotationRef.current);
     setPanX(c.x);
     setPanY(c.y);
   }, [imageAreaRef, zoomRef, imgW, imgH, rotationRef, setPanX, setPanY]);
@@ -112,13 +114,12 @@ export function usePanGesture({
           let velX = vx;
           let velY = vy;
           const tick = () => {
-            const el = imageAreaRef.current;
-            if (!el) return;
-            const rect = el.getBoundingClientRect();
+            const cr = containerRectRef.current ?? imageAreaRef.current?.getBoundingClientRect();
+            if (!cr) return;
             const z = zoomRef.current;
             const nx = panXRef.current + velX;
             const ny = panYRef.current + velY;
-            const c = clampPan(nx, ny, z, imgW.current, imgH.current, rect.width, rect.height, rotationRef.current);
+            const c = clampPan(nx, ny, z, imgW.current, imgH.current, cr.width, cr.height, rotationRef.current);
             if (c.x !== nx) velX = 0;
             if (c.y !== ny) velY = 0;
             setPanX(c.x);

@@ -113,21 +113,23 @@ export function useFileOperations({
     if (selectedIndices.size === 0) return;
     const imgs = imagesRef.current;
     const toDelete = [...selectedIndices].sort((a, b) => b - a);
-    let hadErrors = false;
+    const paths: string[] = [];
     for (const idx of toDelete) {
       if (idx < 0 || idx >= imgs.length) continue;
-      const path = imgs[idx];
-      try {
-        await invoke("move_to_trash", { filePath: path });
-      } catch {
-        hadErrors = true;
-        continue;
-      }
+      paths.push(imgs[idx]);
+    }
+    if (paths.length === 0) return;
+
+    try {
+      await invoke("move_to_trash_batch", { filePaths: paths });
+    } catch {
+      // Continue cleanup even if some deletes failed
+    }
+    for (const path of paths) {
       imageMetaMapRef.current.delete(path);
       imageCache.current.delete(path);
     }
     setSelectedIndices(new Set());
-    if (hadErrors) return;
 
     const remaining = imgs.filter((_, i) => !selectedIndices.has(i));
     if (remaining.length === 0) {

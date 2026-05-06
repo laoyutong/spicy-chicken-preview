@@ -28,4 +28,5 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "tiff"] }
 arboard = "3"
 trash = "5"
+walkdir = "2"
 
