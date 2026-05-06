@@ -1,6 +1,7 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo, memo } from "react";
 import { t, type Language } from "./i18n";
 import { CachedThumbnail } from "./thumbnailCache";
+import { FolderIcon, CloseIcon } from "./icons";
 
 interface SubdirInfo {
   name: string;
@@ -63,7 +64,7 @@ function getFolderName(folderPath: string): string {
   return parts.length > 0 ? parts[parts.length - 1] : folderPath;
 }
 
-export default function Sidebar({
+const Sidebar = memo(function Sidebar({
   images,
   currentIndex,
   onSelect,
@@ -256,9 +257,7 @@ export default function Sidebar({
                   onClick={() => onNavigateFolder(f.path)}
                   title={f.path}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                  </svg>
+                  <FolderIcon size={18} />
                   <span className="recent-folder-name">{f.name}</span>
                 </div>
               ))}
@@ -280,9 +279,7 @@ export default function Sidebar({
             </button>
           )}
           <div className={`sidebar-folder-title${recursiveRoot === currentFolder ? " recursive-active" : ""}`} title={currentFolder}>
-            <svg className="sidebar-folder-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-            </svg>
+            <span className="sidebar-folder-icon"><FolderIcon size={18} /></span>
             <span className="sidebar-folder-name">{getFolderName(currentFolder)}</span>
             {subdirs.length > 0 && (
               <span
@@ -300,10 +297,7 @@ export default function Sidebar({
             onClick={onCloseFolder}
             title={language === "zh" ? "关闭文件夹" : "Close folder"}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <CloseIcon size={14} />
           </button>
         </div>
       )}
@@ -320,9 +314,7 @@ export default function Sidebar({
                   onClick={() => onNavigateFolder(dir.path)}
                   title={dir.name}
                 >
-                  <svg className="sidebar-folder-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                  </svg>
+                  <span className="sidebar-folder-icon"><FolderIcon size={18} /></span>
                   <span className="sidebar-folder-name">{dir.name}</span>
                 </div>
               );
@@ -393,4 +385,6 @@ export default function Sidebar({
       />
     </div>
   );
-}
+});
+
+export default Sidebar;

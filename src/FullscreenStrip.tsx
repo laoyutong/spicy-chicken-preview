@@ -1,4 +1,4 @@
-import { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
+import { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo, memo } from "react";
 import { CachedThumbnail } from "./thumbnailCache";
 
 interface FullscreenStripProps {
@@ -18,7 +18,12 @@ const MODE_ICONS: Record<string, string> = {
   shuffle: "⇄",
 };
 
-export default function FullscreenStrip({
+const ITEM_WIDTH = 62;   // 56px thumbnail + 6px gap
+const THUMB_WIDTH = 56;
+const WINDOW = 30;       // render ±30 items around current index
+const EAGER_WINDOW = 8;  // eager-load ±8 items around current index
+
+const FullscreenStrip = memo(function FullscreenStrip({
   images, currentIndex, onSelect,
   slideshowActive, slideshowInterval, slideshowMode,
   onToggleSlideshow, onCycleInterval, onCycleMode,
@@ -27,8 +32,11 @@ export default function FullscreenStrip({
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stripRef = useRef<HTMLDivElement>(null);
 
+  const visibleRef = useRef(false);
+  useEffect(() => { visibleRef.current = visible; }, [visible]);
+
   const resetHideTimer = useCallback(() => {
-    setVisible(true);
+    if (!visibleRef.current) setVisible(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => setVisible(false), 2000);
   }, []);
@@ -40,14 +48,12 @@ export default function FullscreenStrip({
   useLayoutEffect(() => {
     const strip = stripRef.current;
     if (!strip) return;
-    const activeItem = strip.children[currentIndex] as HTMLElement | undefined;
-    if (!activeItem) return;
 
-    const target = activeItem.offsetLeft - strip.offsetWidth / 2 + activeItem.offsetWidth / 2;
+    const target = currentIndex * ITEM_WIDTH + THUMB_WIDTH / 2 - strip.offsetWidth / 2;
 
     if (!mountedRef.current) {
       mountedRef.current = true;
-      strip.scrollLeft = target;
+      strip.scrollLeft = Math.max(0, target);
       return;
     }
 
@@ -59,7 +65,7 @@ export default function FullscreenStrip({
     // If the target is more than 2 viewport-widths away, snap instantly.
     // This handles shuffle-mode large jumps without a disorienting flying animation.
     if (Math.abs(distance) > stripWidth * 2) {
-      strip.scrollLeft = target;
+      strip.scrollLeft = Math.max(0, target);
       return;
     }
 
@@ -106,6 +112,14 @@ export default function FullscreenStrip({
     [images],
   );
 
+  // Virtualization: only render thumbnails within a window around currentIndex
+  const { winStart, winEnd, visibleImages } = useMemo(() => {
+    const start = Math.max(0, currentIndex - WINDOW);
+    const end = Math.min(images.length, currentIndex + WINDOW + 1);
+    const slice = images.slice(start, end);
+    return { winStart: start, winEnd: end, visibleImages: slice };
+  }, [images, currentIndex]);
+
   if (images.length === 0) return null;
 
   return (
@@ -121,8 +135,14 @@ export default function FullscreenStrip({
       }}
     >
       <div className="fullscreen-strip-list" ref={stripRef}>
-        {images.map((filePath, index) => {
+        {/* Leading spacer for virtualized items */}
+        {winStart > 0 && (
+          <div style={{ minWidth: winStart * ITEM_WIDTH, flexShrink: 0 }} />
+        )}
+        {visibleImages.map((filePath, sliceIdx) => {
+          const index = winStart + sliceIdx;
           const fileName = fileNames[index];
+          const dist = Math.abs(index - currentIndex);
           return (
             <div
               key={filePath}
@@ -130,11 +150,15 @@ export default function FullscreenStrip({
               onClick={() => onSelect(index)}
               title={fileName}
             >
-              <CachedThumbnail filePath={filePath} eager />
+              <CachedThumbnail filePath={filePath} eager={dist < EAGER_WINDOW} />
               <span className="fullscreen-strip-name">{fileName}</span>
             </div>
           );
         })}
+        {/* Trailing spacer for virtualized items */}
+        {winEnd < images.length && (
+          <div style={{ minWidth: (images.length - winEnd) * ITEM_WIDTH, flexShrink: 0 }} />
+        )}
       </div>
       <div className="fullscreen-strip-controls">
         <button
@@ -170,4 +194,6 @@ export default function FullscreenStrip({
       </div>
     </div>
   );
-}
+});
+
+export default FullscreenStrip;

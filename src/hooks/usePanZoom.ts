@@ -27,17 +27,29 @@ export function usePanZoom({ imageAreaRef, imgW, imgH }: UsePanZoomParams) {
   useEffect(() => { panYRef.current = panY; }, [panY]);
   useEffect(() => { rotationRef.current = rotation; }, [rotation]);
 
+  // Cache container rect to avoid duplicate getBoundingClientRect() calls
+  // (updated by draw() each frame, read by zoomToward() during wheel events)
+  const containerRectRef = useRef<{ width: number; height: number } | null>(null);
+
   const resetView = useCallback(() => {
     zoomRef.current = 1; panXRef.current = 0; panYRef.current = 0;
     setZoom(1); setPanX(0); setPanY(0);
   }, []);
 
   const zoomToward = useCallback((cx: number, cy: number, step: number) => {
-    const container = imageAreaRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const cw = rect.width;
-    const ch = rect.height;
+    // Prefer cached rect from draw() to avoid forced layout; fall back to live read
+    let cw: number;
+    let ch: number;
+    if (containerRectRef.current) {
+      cw = containerRectRef.current.width;
+      ch = containerRectRef.current.height;
+    } else {
+      const container = imageAreaRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      cw = rect.width;
+      ch = rect.height;
+    }
     if (cw <= 0 || ch <= 0) return;
 
     const oldZ = zoomRef.current;
@@ -70,6 +82,7 @@ export function usePanZoom({ imageAreaRef, imgW, imgH }: UsePanZoomParams) {
     zoom, setZoom, panX, setPanX, panY, setPanY,
     zoomRef, panXRef, panYRef,
     rotation, setRotation, rotationRef,
+    containerRectRef,
     zoomToward, resetView,
     rotateClockwise, rotateCounterClockwise,
     MIN_ZOOM, MAX_ZOOM, ZOOM_STEP,

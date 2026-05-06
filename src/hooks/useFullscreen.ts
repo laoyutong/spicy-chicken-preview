@@ -77,20 +77,22 @@ export function useFullscreen({ draw, fullscreenTransitioningRef }: UseFullscree
         (async () => {
           try {
             const win = getCurrentWebviewWindow();
-            const fs = await win.isFullscreen();
-            if (!fs) {
-              await win.setFullscreen(true);
-              // tauri://resize handler will sync isNativeFullscreen, unlock, and redraw.
-            } else {
-              // Already fullscreen: no resize event will fire.
-              // Unlock after UI-hide layout change settles.
-              requestAnimationFrame(() => {
+            // Always call setFullscreen(true); if already fullscreen it's a no-op.
+            // Skip isFullscreen() check to avoid an extra IPC round-trip.
+            await win.setFullscreen(true);
+            // If a resize event fires, the handler will sync isNativeFullscreen,
+            // unlock, and redraw. Fallback timeout for the already-fullscreen case
+            // where no resize event fires.
+            setTimeout(() => {
+              if (fullscreenTransitioningRef.current) {
                 requestAnimationFrame(() => {
-                  fullscreenTransitioningRef.current = false;
-                  draw();
+                  requestAnimationFrame(() => {
+                    fullscreenTransitioningRef.current = false;
+                    draw();
+                  });
                 });
-              });
-            }
+              }
+            }, 200);
           } catch {
             fullscreenTransitioningRef.current = false;
           }

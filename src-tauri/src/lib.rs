@@ -352,10 +352,94 @@ fn read_u32(buf: &[u8], offset: usize, little: bool) -> u32 {
     }
 }
 
+/// Batch-query dimensions for HEIC/HEIF files via a single `sips` invocation.
+/// Parses multi-file output of the form:
+///   /path/to/file.heic
+///     pixelWidth: 4032
+///     pixelHeight: 3024
+fn batch_sips_dimensions(paths: &[&str]) -> std::collections::HashMap<String, (u32, u32)> {
+    use std::collections::HashMap;
+    if paths.is_empty() {
+        return HashMap::new();
+    }
+    let mut cmd = Command::new("sips");
+    cmd.arg("-g").arg("pixelWidth").arg("-g").arg("pixelHeight");
+    for p in paths {
+        cmd.arg(p);
+    }
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(_) => return HashMap::new(),
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut results = HashMap::with_capacity(paths.len());
+    let mut current_path: Option<String> = None;
+    let mut current_w: u32 = 0;
+    let mut current_h: u32 = 0;
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('/') {
+            if let Some(p) = current_path.take() {
+                results.insert(p, (current_w, current_h));
+            }
+            current_path = Some(trimmed.to_string());
+            current_w = 0;
+            current_h = 0;
+        } else if let Some(val) = trimmed.strip_prefix("pixelWidth: ") {
+            current_w = val.parse().unwrap_or(0);
+        } else if let Some(val) = trimmed.strip_prefix("pixelHeight: ") {
+            current_h = val.parse().unwrap_or(0);
+        }
+    }
+    if let Some(p) = current_path {
+        results.insert(p, (current_w, current_h));
+    }
+    results
+}
+
 #[tauri::command]
 fn get_images_dimensions(file_paths: Vec<String>) -> Result<Vec<ImageDimensions>, String> {
     if file_paths.is_empty() {
         return Ok(Vec::new());
+    }
+
+    // Pre-collect HEIC/HEIF files and query them in a single sips batch
+    let heic_exts = ["heic", "heif"];
+    let heic_paths: Vec<&str> = file_paths
+        .iter()
+        .filter(|p| {
+            Path::new(p)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| heic_exts.contains(&e.to_lowercase().as_str()))
+                .unwrap_or(false)
+        })
+        .map(|s| s.as_str())
+        .collect();
+    let sips_dims = batch_sips_dimensions(&heic_paths);
+
+    fn resolve_dimensions(path: &Path, sips_dims: &std::collections::HashMap<String, (u32, u32)>) -> (u32, u32) {
+        let (mut w, mut h) = if let Ok(reader) = image::ImageReader::open(path) {
+            if let Ok(reader) = reader.with_guessed_format() {
+                if let Ok(dimensions) = reader.into_dimensions() {
+                    (dimensions.0, dimensions.1)
+                } else {
+                    (0, 0)
+                }
+            } else {
+                (0, 0)
+            }
+        } else {
+            (0, 0)
+        };
+        // Fall back to batched sips results for formats the image crate can't decode (HEIC/HEIF)
+        if w == 0 || h == 0 {
+            if let Some(&(sw, sh)) = sips_dims.get(&path.to_string_lossy().to_string()) {
+                w = sw;
+                h = sh;
+            }
+        }
+        (w, h)
     }
 
     // For small batches, avoid thread creation overhead
@@ -365,37 +449,7 @@ fn get_images_dimensions(file_paths: Vec<String>) -> Result<Vec<ImageDimensions>
         for path_str in &file_paths {
             let path = Path::new(path_str);
             let orientation = read_jpeg_orientation(path);
-            let (mut w, mut h) = if let Ok(reader) = image::ImageReader::open(path) {
-                if let Ok(reader) = reader.with_guessed_format() {
-                    if let Ok(dimensions) = reader.into_dimensions() {
-                        (dimensions.0, dimensions.1)
-                    } else {
-                        (0, 0)
-                    }
-                } else {
-                    (0, 0)
-                }
-            } else {
-                (0, 0)
-            };
-            // HEIC/HEIF fallback: use macOS sips when image crate cannot decode
-            if w == 0 || h == 0 {
-                if let Ok(output) = Command::new("sips")
-                    .arg("-g").arg("pixelWidth")
-                    .arg("-g").arg("pixelHeight")
-                    .arg(path_str)
-                    .output()
-                {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    for line in stdout.lines() {
-                        if let Some(val) = line.trim().strip_prefix("pixelWidth: ") {
-                            w = val.parse().unwrap_or(0);
-                        } else if let Some(val) = line.trim().strip_prefix("pixelHeight: ") {
-                            h = val.parse().unwrap_or(0);
-                        }
-                    }
-                }
-            }
+            let (mut w, mut h) = resolve_dimensions(path, &sips_dims);
             // Swap dimensions if EXIF orientation includes 90° rotation (5-8)
             if orientation >= 5 && orientation <= 8 && w > 0 && h > 0 {
                 (w, h) = (h, w);
@@ -410,6 +464,7 @@ fn get_images_dimensions(file_paths: Vec<String>) -> Result<Vec<ImageDimensions>
     }
 
     let paths: std::sync::Arc<[String]> = std::sync::Arc::from(file_paths.into_boxed_slice());
+    let sips_dims = std::sync::Arc::new(sips_dims);
     let num_threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
@@ -422,6 +477,7 @@ fn get_images_dimensions(file_paths: Vec<String>) -> Result<Vec<ImageDimensions>
 
         for t in 0..num_threads {
             let paths = std::sync::Arc::clone(&paths);
+            let sips_dims = std::sync::Arc::clone(&sips_dims);
             let start = t * chunk_size;
             let end = ((t + 1) * chunk_size).min(paths.len());
             if start >= end {
@@ -433,37 +489,7 @@ fn get_images_dimensions(file_paths: Vec<String>) -> Result<Vec<ImageDimensions>
                     let path_str = &paths[idx];
                     let path = Path::new(path_str);
                     let orientation = read_jpeg_orientation(path);
-                    let (mut w, mut h) = if let Ok(reader) = image::ImageReader::open(path) {
-                        if let Ok(reader) = reader.with_guessed_format() {
-                            if let Ok(dimensions) = reader.into_dimensions() {
-                                (dimensions.0, dimensions.1)
-                            } else {
-                                (0, 0)
-                            }
-                        } else {
-                            (0, 0)
-                        }
-                    } else {
-                        (0, 0)
-                    };
-                    // HEIC/HEIF fallback: use macOS sips when image crate cannot decode
-                    if w == 0 || h == 0 {
-                        if let Ok(output) = Command::new("sips")
-                            .arg("-g").arg("pixelWidth")
-                            .arg("-g").arg("pixelHeight")
-                            .arg(path_str)
-                            .output()
-                        {
-                            let stdout = String::from_utf8_lossy(&output.stdout);
-                            for line in stdout.lines() {
-                                if let Some(val) = line.trim().strip_prefix("pixelWidth: ") {
-                                    w = val.parse().unwrap_or(0);
-                                } else if let Some(val) = line.trim().strip_prefix("pixelHeight: ") {
-                                    h = val.parse().unwrap_or(0);
-                                }
-                            }
-                        }
-                    }
+                    let (mut w, mut h) = resolve_dimensions(path, &sips_dims);
                     if orientation >= 5 && orientation <= 8 && w > 0 && h > 0 {
                         (w, h) = (h, w);
                     }

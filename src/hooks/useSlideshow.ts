@@ -37,7 +37,8 @@ export function useSlideshow({
   const [slideshowInterval, setSlideshowInterval] = useState(3);
   const [slideshowMode, setSlideshowMode] = useState<SlideshowMode>("forward");
   const [slideshowTick, setSlideshowTick] = useState(0);
-  const shuffleOrderRef = useRef<number[]>([]);
+  const shuffleHistoryRef = useRef<number[]>([]);  // previously visited indices (stack)
+  const shuffleFutureRef = useRef<number[]>([]);    // upcoming indices (queue)
 
   // Keep refs in sync to avoid stale closures inside setInterval
   const slideshowActiveRef = useRef(slideshowActive);
@@ -61,31 +62,43 @@ export function useSlideshow({
     setSlideshowActive((a) => !a);
   }, []);
 
-  const slideshowAdvance = useCallback(() => {
+  const clearShuffleState = useCallback(() => {
+    shuffleHistoryRef.current = [];
+    shuffleFutureRef.current = [];
+  }, []);
+
+  const slideshowAdvance = useCallback((delta: number) => {
     const imgs = imagesRef.current;
     if (imgs.length === 0) return;
 
     let newIndex: number;
     const mode = slideshowModeRef.current;
+    const curIdx = currentIndexRef.current;
 
     if (mode === "shuffle") {
-      // Regenerate shuffle order when reaching the end, or on first use
-      let order = shuffleOrderRef.current;
-      if (order.length !== imgs.length) {
-        order = fisherYatesShuffle(imgs.map((_, i) => i));
-        // Start from current position
-        const curPos = order.indexOf(currentIndexRef.current);
-        if (curPos >= 0) {
-          order = [...order.slice(curPos + 1), ...order.slice(0, curPos)];
+      if (delta > 0) {
+        // Forward: pop from future queue, push current to history stack
+        if (shuffleFutureRef.current.length === 0) {
+          // Regenerate future order
+          const order = fisherYatesShuffle(imgs.map((_, i) => i));
+          shuffleFutureRef.current = order.filter((i) => i !== curIdx);
         }
-        shuffleOrderRef.current = order;
-      }
-      newIndex = order.shift()!;
-      if (order.length === 0) {
-        shuffleOrderRef.current = [];
+        const next = shuffleFutureRef.current.shift()!;
+        shuffleHistoryRef.current.push(curIdx);
+        newIndex = next;
+      } else {
+        // Backward: pop from history stack, push current to front of future queue
+        if (shuffleHistoryRef.current.length === 0) {
+          // No history — fall back to sequential
+          newIndex = (curIdx - 1 + imgs.length) % imgs.length;
+        } else {
+          const prev = shuffleHistoryRef.current.pop()!;
+          shuffleFutureRef.current.unshift(curIdx);
+          newIndex = prev;
+        }
       }
     } else {
-      newIndex = (currentIndexRef.current + 1) % imgs.length;
+      newIndex = (curIdx + delta + imgs.length) % imgs.length;
     }
 
     currentIndexRef.current = newIndex;
@@ -102,7 +115,7 @@ export function useSlideshow({
   useEffect(() => {
     if (!slideshowActive || imageCount === 0) return;
     const timer = setInterval(() => {
-      slideshowAdvance();
+      slideshowAdvance(1);
     }, slideshowInterval * 1000);
     return () => clearInterval(timer);
   }, [slideshowActive, slideshowInterval, imageCount, slideshowAdvance, slideshowTick]);
@@ -128,5 +141,7 @@ export function useSlideshow({
     cycleSlideshowInterval,
     cycleSlideshowMode,
     resetSlideshowInterval,
+    slideshowAdvance,
+    clearShuffleState,
   };
 }

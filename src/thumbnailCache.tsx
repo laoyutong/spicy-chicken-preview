@@ -4,6 +4,17 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 
 export const THUMBNAIL_SIZE = 128;
 
+// Cache asset protocol URLs for thumbnail paths
+const thumbSrcCache = new Map<string, string>();
+function cachedConvertFileSrc(filePath: string): string {
+  let url = thumbSrcCache.get(filePath);
+  if (!url) {
+    url = convertFileSrc(filePath);
+    thumbSrcCache.set(filePath, url);
+  }
+  return url;
+}
+
 const MAX_THUMBNAIL_PATH_CACHE = 200;
 
 const thumbnailPathCache = new Map<string, string>();
@@ -66,7 +77,7 @@ function getSharedObserver(): IntersectionObserver {
           }
         }
       },
-      { rootMargin: "300px" },
+      { rootMargin: "100px" },
     );
   }
   return sharedObserver;
@@ -111,7 +122,7 @@ export function CachedThumbnail({ filePath, eager }: CachedThumbnailProps) {
     if (!shouldLoad) return;
     let cancelled = false;
     loadThumbnailPath(filePath).then((cachePath) => {
-      if (!cancelled) setSrc(convertFileSrc(cachePath));
+      if (!cancelled) setSrc(cachedConvertFileSrc(cachePath));
     }).catch(() => {
       if (!cancelled) setFailed(true);
     });

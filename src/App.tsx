@@ -1,6 +1,17 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"; // eslint-disable-line
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
+
+// Cache asset protocol URLs — convertFileSrc is stable (same path → same URL)
+const fileSrcCache = new Map<string, string>();
+function cachedConvertFileSrc(filePath: string): string {
+  let url = fileSrcCache.get(filePath);
+  if (!url) {
+    url = convertFileSrc(filePath);
+    fileSrcCache.set(filePath, url);
+  }
+  return url;
+}
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import Sidebar, { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH } from "./Sidebar";
@@ -241,6 +252,8 @@ function App() {
     const rect = container.getBoundingClientRect();
     const cw = rect.width;
     const ch = rect.height;
+    // Share rect with usePanZoom to avoid duplicate getBoundingClientRect in zoomToward
+    pz.containerRectRef.current = { width: cw, height: ch };
     if (cw <= 0 || ch <= 0) return;
 
     const dpr = window.devicePixelRatio || 1;
@@ -367,7 +380,7 @@ function App() {
               img.onload = null; img.onerror = null;
               imageCache.current.unmarkLoading(path);
             };
-            img.src = convertFileSrc(path);
+            img.src = cachedConvertFileSrc(path);
           }
         }
       };
@@ -406,18 +419,22 @@ function App() {
       loadStartTimeRef.current = Date.now();
       setLoading(true);
       try {
-        const url = convertFileSrc(filePath);
+        const url = cachedConvertFileSrc(filePath);
         setImageUrl(url);
         setCurrentFile(filePath);
         setError(null);
         // Delay pz.resetView until new image is decoded — keeping the old
         // image at its current zoom/pan prevents a visual jump.
 
-        // Fetch file metadata in parallel with image loading
-        const metadataPromise = invoke<{ size: number; extension: string }>(
-          "get_file_info", { filePath },
-        ).then((info) => { setFileSize(info.size); setFileFormat(info.extension); })
-          .catch(() => { setFileSize(null); setFileFormat(null); });
+        // Read file metadata from the in-memory map (already loaded by list_folder_contents)
+        const metaInfo = meta.imageMetaMapRef.current.get(filePath);
+        if (metaInfo) {
+          setFileSize(metaInfo.size);
+          setFileFormat(metaInfo.extension);
+        } else {
+          setFileSize(null);
+          setFileFormat(null);
+        }
 
         // Check cache first for instant display
         const cached = imageCache.current.get(filePath);
@@ -433,7 +450,6 @@ function App() {
           }
           // Force draw even when zoom/pan are already at default values
           setDrawVersion(v => v + 1);
-          await metadataPromise;
           return;
         }
 
@@ -471,8 +487,6 @@ function App() {
         // Force draw even when zoom/pan are already at default values
         setDrawVersion(v => v + 1);
 
-        await metadataPromise;
-
         // Preload neighbours after current image loads (only if still current)
         const idx = imageIndexMapRef.current.get(filePath) ?? -1;
         if (idx !== -1 && loadGen.current === gen) preloadAdjacent(idx);
@@ -502,6 +516,7 @@ function App() {
     slideshowInterval, setSlideshowInterval,
     slideshowMode, cycleSlideshowMode,
     toggleSlideshow, cycleSlideshowInterval, resetSlideshowInterval,
+    slideshowAdvance, clearShuffleState,
   } = useSlideshow({
     imagesRef,
     currentIndexRef,
@@ -776,12 +791,13 @@ function App() {
     (index: number) => {
       if (images.length === 0 || index === currentIndexRef.current) return;
       if (gestures.momentumRaf.current) { cancelAnimationFrame(gestures.momentumRaf.current); gestures.momentumRaf.current = 0; }
+      clearShuffleState();
       currentIndexRef.current = index;
       setCurrentIndex(index);
       preloadAdjacent(index);
       loadImage(images[index], true);
     },
-    [images, loadImage, preloadAdjacent]
+    [images, loadImage, preloadAdjacent, clearShuffleState]
   );
 
   const navigateToFolder = useCallback(
@@ -838,11 +854,11 @@ function App() {
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         resetSlideshowInterval();
-        navigate(-1);
+        if (isImmersive) { slideshowAdvance(-1); } else { navigate(-1); }
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         resetSlideshowInterval();
-        navigate(1);
+        if (isImmersive) { slideshowAdvance(1); } else { navigate(1); }
       } else if (e.key === "?" && !(e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setShortcutsOpen(true);
@@ -908,7 +924,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, pz.resetView, pz.zoomToward, toggleNativeFullscreen, isImmersive, settingsOpen, shortcutsOpen, deleteConfirm, selectedIndices, imageUrl, fileOps.copyImage]);
+  }, [navigate, slideshowAdvance, pz.resetView, pz.zoomToward, toggleNativeFullscreen, isImmersive, settingsOpen, shortcutsOpen, deleteConfirm, selectedIndices, imageUrl, fileOps.copyImage]);
 
   const loadOpenedFile = useCallback(
     async (filePath: string) => {

@@ -1,4 +1,4 @@
-import { useState, useLayoutEffect, useRef, useMemo, Fragment, type ReactNode } from "react";
+import { useState, useLayoutEffect, useRef, useMemo, Fragment, memo, type ReactNode } from "react";
 import "./Toolbar.css";
 
 /* ── Types ─────────────────────────────────────────────────────── */
@@ -68,7 +68,7 @@ function groupBySection(items: ToolbarItemDef[]) {
 
 /* ── Toolbar Component ─────────────────────────────────────────── */
 
-export function Toolbar({ items, onOverflowChange }: ToolbarProps) {
+export const Toolbar = memo(function Toolbar({ items, onOverflowChange }: ToolbarProps) {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [overflowIds, setOverflowIds] = useState<Set<string>>(new Set());
   const [measureVersion, setMeasureVersion] = useState(0);
@@ -230,4 +230,4 @@ export function Toolbar({ items, onOverflowChange }: ToolbarProps) {
       </div>
     </div>
   );
-}
+});
