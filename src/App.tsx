@@ -532,6 +532,11 @@ function App() {
     preloadAdjacent,
   });
 
+  // Reset shuffle state when filter mode changes so indices stay valid
+  useEffect(() => {
+    clearShuffleState();
+  }, [filterMode, clearShuffleState]);
+
   const fileOps = useFileOperations({
     currentFile,
     selectedIndices,
