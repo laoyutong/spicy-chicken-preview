@@ -1141,6 +1141,7 @@ function App() {
           setSelectedIndices(new Set());
           sourceImg.current = null;
         }}
+        isImmersive={isImmersive}
       />
       <div className="viewer-right">
         <Toolbar items={toolbarItems} onOverflowChange={handleOverflowChange} />

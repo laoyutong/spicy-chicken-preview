@@ -57,6 +57,7 @@ interface SidebarProps {
   recursiveRoot: string | null;
   onRecursivePlay: (folderPath: string) => void;
   onCloseFolder: () => void;
+  isImmersive?: boolean;
 }
 
 function getFolderName(folderPath: string): string {
@@ -87,6 +88,7 @@ const Sidebar = memo(function Sidebar({
   recursiveRoot,
   onRecursivePlay,
   onCloseFolder,
+  isImmersive = false,
 }: SidebarProps) {
   const activeRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -203,6 +205,12 @@ const Sidebar = memo(function Sidebar({
       const listEl = listRef.current;
       if (!listEl) return;
 
+      // Skip when hidden by CSS (e.g. immersive mode) — getBoundingClientRect
+      // returns zeros for display:none elements, which would falsely pass the
+      // "fully visible" check below. The effect will re-fire when isImmersive
+      // changes, at which point the element will have proper dimensions.
+      if (listEl.clientHeight === 0) return;
+
       // Abort any in-progress smooth-scroll animation by writing
       // scrollTop back to itself, so animations don't stack.
       listEl.scrollTop = listEl.scrollTop;
@@ -244,7 +252,7 @@ const Sidebar = memo(function Sidebar({
         scrollTimerRef.current = 0;
       }
     };
-  }, [currentIndex, visible, itemCount]);
+  }, [currentIndex, visible, itemCount, isImmersive]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
