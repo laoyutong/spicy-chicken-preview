@@ -606,21 +606,21 @@ function App() {
           addToRecentFolders(folderPath);
         }
 
-        if ((meta.sortBy === "dimensions" || meta.sortBy === "aspect-ratio" || filterMode !== "all") && sorted.length > 0) {
-          invoke<{ path: string; width: number; height: number }[]>(
+        // Start loading dimensions if needed for sort or filter
+        const needsDims = (meta.sortBy === "dimensions" || meta.sortBy === "aspect-ratio" || filterMode !== "all") && sorted.length > 0;
+        let dimsPromise: Promise<void> = Promise.resolve();
+        if (needsDims) {
+          const map = meta.imageMetaMapRef.current;
+          dimsPromise = invoke<{ path: string; width: number; height: number }[]>(
             "get_images_dimensions", { filePaths: sorted },
           ).then((dims) => {
-            const map = meta.imageMetaMapRef.current;
-            let hasNew = false;
             for (const d of dims) {
               const existing = map.get(d.path);
               if (existing && existing.width === undefined) {
                 existing.width = d.width;
                 existing.height = d.height;
-                hasNew = true;
               }
             }
-            if (hasNew) meta.setMetaVersion((v) => v + 1);
           }).catch(() => {});
         }
 
@@ -631,6 +631,19 @@ function App() {
           setCurrentIndex(0);
           setCurrentFile(null);
           setImageUrl(null);
+        }
+
+        // Wait for dimensions to finish, then re-sort & re-filter so the
+        // sidebar shows correct results before loading indicator hides.
+        await dimsPromise;
+        if (needsDims) {
+          const map = meta.imageMetaMapRef.current;
+          const reSorted = sortImagePaths(result.images, meta.sortBy, meta.sortOrder, map);
+          const reGrouped = groupByFolder(reSorted);
+          unfilteredImagesRef.current = reGrouped;
+          const reFiltered = filterImagePaths(reGrouped, filterMode, map);
+          setImages(reFiltered);
+          meta.setMetaVersion((v) => v + 1);
         }
       } catch {
         setError("error.listFailed");
@@ -679,23 +692,21 @@ function App() {
 
         if (sorted.length > 0) addToRecentFolders(folderPath);
 
-        // For dimension-dependent sorts or filtering, load dimensions in background after first image is shown
-        if ((meta.sortBy === "dimensions" || meta.sortBy === "aspect-ratio" || filterMode !== "all") && sorted.length > 0) {
-          const imagesToMeasure = sorted;
-          invoke<{ path: string; width: number; height: number }[]>(
-            "get_images_dimensions", { filePaths: imagesToMeasure },
+        // Start loading dimensions if needed for sort or filter
+        const needsDims = (meta.sortBy === "dimensions" || meta.sortBy === "aspect-ratio" || filterMode !== "all") && sorted.length > 0;
+        let dimsPromise: Promise<void> = Promise.resolve();
+        if (needsDims) {
+          const map = meta.imageMetaMapRef.current;
+          dimsPromise = invoke<{ path: string; width: number; height: number }[]>(
+            "get_images_dimensions", { filePaths: sorted },
           ).then((dims) => {
-            const map = meta.imageMetaMapRef.current;
-            let hasNew = false;
             for (const d of dims) {
               const existing = map.get(d.path);
               if (existing && existing.width === undefined) {
                 existing.width = d.width;
                 existing.height = d.height;
-                hasNew = true;
               }
             }
-            if (hasNew) meta.setMetaVersion((v) => v + 1);
           }).catch(() => {});
         }
 
@@ -710,6 +721,18 @@ function App() {
           setCurrentIndex(0);
           setCurrentFile(null);
           setImageUrl(null);
+        }
+
+        // Wait for dimensions to finish, then re-sort & re-filter so the
+        // sidebar shows correct results before loading indicator hides.
+        await dimsPromise;
+        if (needsDims) {
+          const map = meta.imageMetaMapRef.current;
+          const reSorted = sortImagePaths(result.images, meta.sortBy, meta.sortOrder, map);
+          unfilteredImagesRef.current = reSorted;
+          const reFiltered = filterImagePaths(reSorted, filterMode, map);
+          setImages(reFiltered);
+          meta.setMetaVersion((v) => v + 1);
         }
       } catch {
         setError("error.listFailed");
