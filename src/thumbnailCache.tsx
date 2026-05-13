@@ -15,7 +15,7 @@ function cachedConvertFileSrc(filePath: string): string {
   return url;
 }
 
-const MAX_THUMBNAIL_PATH_CACHE = 200;
+const MAX_THUMBNAIL_PATH_CACHE = 500;
 
 const thumbnailPathCache = new Map<string, string>();
 const pendingRequests = new Map<string, Promise<string>>();
@@ -142,8 +142,9 @@ export function CachedThumbnail({ filePath, eager }: CachedThumbnailProps) {
   }
 
   if (!src) {
+    const loadingClass = shouldLoad ? "sidebar-thumbnail-loading" : "sidebar-thumbnail-pending";
     return (
-      <div ref={containerRef} className="sidebar-thumbnail sidebar-thumbnail-loading">
+      <div ref={containerRef} className={`sidebar-thumbnail ${loadingClass}`}>
         <svg className="thumbnail-placeholder-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
           <circle cx="8.5" cy="8.5" r="1.5" />

@@ -40,6 +40,7 @@ interface SidebarProps {
   currentIndex: number;
   onSelect: (index: number, e?: React.MouseEvent) => void;
   visible: boolean;
+  loading?: boolean;
   currentFolder: string | null;
   subdirs: SubdirInfo[];
   parentPath: string | null;
@@ -69,6 +70,7 @@ const Sidebar = memo(function Sidebar({
   currentIndex,
   onSelect,
   visible,
+  loading = false,
   currentFolder,
   subdirs,
   parentPath,
@@ -100,6 +102,8 @@ const Sidebar = memo(function Sidebar({
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const rafRef = useRef(0);
+  const scrollTimerRef = useRef(0);
+  const skipIndexScrollRef = useRef(false);
 
   const displayItems = useMemo(
     () => images.map((path, i) => ({ path, originalIndex: i })),
@@ -107,10 +111,13 @@ const Sidebar = memo(function Sidebar({
   );
   const itemCount = displayItems.length;
 
-  // Compute visible range for virtual scrolling
+  // Compute visible range for virtual scrolling.
+  // start is clamped to itemCount-1 so that macOS elastic overscroll
+  // (scrollTop past maxScrollTop) never yields start >= end, which
+  // would produce an empty slice and a layout feedback loop.
   const visibleRange = (() => {
     if (itemCount <= 100) return null;
-    const start = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - OVERSCAN);
+    const start = Math.min(Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - OVERSCAN), Math.max(0, itemCount - 1));
     const end = Math.min(itemCount, Math.ceil((scrollTop + containerHeight) / ITEM_HEIGHT) + OVERSCAN);
     return { start, end };
   })();
@@ -141,9 +148,10 @@ const Sidebar = memo(function Sidebar({
     }
   }, [selectedIndices, onSelectedIndicesChange, onSelect]);
 
-  // Scroll to top when folder changes or search query changes
+  // Scroll to top when folder changes
   useEffect(() => {
     if (listRef.current) {
+      skipIndexScrollRef.current = true;
       listRef.current.scrollTop = 0;
       setScrollTop(0);
     }
@@ -178,28 +186,65 @@ const Sidebar = memo(function Sidebar({
   useEffect(() => {
     if (!visible) return;
 
-    if (activeRef.current) {
-      const el = activeRef.current;
-      requestAnimationFrame(() => {
-        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      });
+    // Folder just changed — folder effect handles scroll position
+    if (skipIndexScrollRef.current) {
+      skipIndexScrollRef.current = false;
       return;
     }
 
-    // Virtual scrolling: the target item is outside the rendered window.
-    // Estimate its position and jump-scroll so it gets rendered on the
-    // next paint (happens during shuffle slideshow or far jumps).
-    const listEl = listRef.current;
-    if (!listEl || itemCount <= 100) return;
+    // Debounce rapid navigation to prevent stacking smooth-scroll animations
+    if (scrollTimerRef.current) {
+      clearTimeout(scrollTimerRef.current);
+    }
 
-    const items = displayItemsRef.current;
-    const pos = items.findIndex((it) => it.originalIndex === currentIndex);
-    if (pos < 0) return;
+    scrollTimerRef.current = window.setTimeout(() => {
+      scrollTimerRef.current = 0;
 
-    const targetTop = pos * ITEM_HEIGHT - listEl.clientHeight / 2 + ITEM_HEIGHT / 2;
-    listEl.scrollTop = Math.max(0, targetTop);
-    setScrollTop(Math.max(0, targetTop));
-  }, [currentIndex, visible]);
+      const listEl = listRef.current;
+      if (!listEl) return;
+
+      // Abort any in-progress smooth-scroll animation by writing
+      // scrollTop back to itself, so animations don't stack.
+      listEl.scrollTop = listEl.scrollTop;
+
+      // Target is rendered — scroll only if not already fully visible
+      if (activeRef.current) {
+        const itemRect = activeRef.current.getBoundingClientRect();
+        const listRect = listEl.getBoundingClientRect();
+        const fullyVisible =
+          itemRect.top >= listRect.top &&
+          itemRect.bottom <= listRect.bottom;
+        if (!fullyVisible) {
+          activeRef.current.scrollIntoView({
+            behavior: "smooth",
+            block: "nearest",
+          });
+        }
+        return;
+      }
+
+      // Virtual scrolling: target outside rendered window.
+      // Use smooth scroll so it feels consistent with the non-virtual path.
+      if (itemCount <= 100) return;
+
+      const items = displayItemsRef.current;
+      const pos = items.findIndex((it) => it.originalIndex === currentIndex);
+      if (pos < 0) return;
+
+      const targetTop = Math.max(
+        0,
+        pos * ITEM_HEIGHT - listEl.clientHeight / 2 + ITEM_HEIGHT / 2,
+      );
+      listEl.scrollTo({ top: targetTop, behavior: "smooth" });
+    }, 80);
+
+    return () => {
+      if (scrollTimerRef.current) {
+        clearTimeout(scrollTimerRef.current);
+        scrollTimerRef.current = 0;
+      }
+    };
+  }, [currentIndex, visible, itemCount]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
@@ -325,19 +370,25 @@ const Sidebar = memo(function Sidebar({
       )}
 
       <div className="sidebar-list" ref={listRef}>
-        {selectedIndices.size > 0 && (
-          <div className="sidebar-selection-bar">
-            <span className="sidebar-selection-count">
-              {language === "zh"
-                ? `已选 ${selectedIndices.size} 张`
-                : `${selectedIndices.size} selected`}
-            </span>
-            <button className="sidebar-selection-delete" onClick={onRequestBatchDelete}>
-              {language === "zh" ? "删除选中" : "Delete"}
-            </button>
-          </div>
-        )}
-        {visibleRange && <div style={{ height: visibleRange.start * ITEM_HEIGHT, flexShrink: 0 }} />}
+        {loading && currentFolder ? (
+          <div className="sidebar-status">{t("sidebar.loading", language)}</div>
+        ) : !loading && images.length === 0 && currentFolder ? (
+          <div className="sidebar-status sidebar-status-empty">{t("sidebar.empty", language)}</div>
+        ) : (
+          <>
+            {selectedIndices.size > 0 && (
+              <div className="sidebar-selection-bar">
+                <span className="sidebar-selection-count">
+                  {language === "zh"
+                    ? `已选 ${selectedIndices.size} 张`
+                    : `${selectedIndices.size} selected`}
+                </span>
+                <button className="sidebar-selection-delete" onClick={onRequestBatchDelete}>
+                  {language === "zh" ? "删除选中" : "Delete"}
+                </button>
+              </div>
+            )}
+            {visibleRange && <div style={{ height: visibleRange.start * ITEM_HEIGHT, flexShrink: 0 }} />}
             {virtualItems.map(({ path, originalIndex }, vi) => {
               // Folder separator in recursive mode: insert a label
               // when the parent folder differs from the previous item.
@@ -375,6 +426,8 @@ const Sidebar = memo(function Sidebar({
               );
             })}
             {visibleRange && <div style={{ height: totalHeight - (visibleRange.end * ITEM_HEIGHT), flexShrink: 0 }} />}
+          </>
+        )}
       </div>
       <div
         className="sidebar-resize-handle"

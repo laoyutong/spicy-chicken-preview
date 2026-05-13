@@ -338,60 +338,6 @@ html, body, #root {
   }
 }
 
-/* ── Sidebar Search ─────────────────────────────────────────────── */
-
-.sidebar-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-
-.sidebar-search-icon {
-  flex-shrink: 0;
-  color: var(--text-muted);
-  opacity: 0.5;
-}
-
-.sidebar-search-input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  outline: none;
-  padding: 2px 0;
-}
-
-.sidebar-search-input::placeholder {
-  color: var(--text-muted);
-  opacity: 0.5;
-}
-
-.sidebar-search-clear {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-  padding: 0;
-}
-
-.sidebar-search-clear:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
 /* ── Sidebar List ──────────────────────────────────────────────── */
 
 .sidebar-list {
@@ -399,6 +345,7 @@ html, body, #root {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 6px 5px;
+  overscroll-behavior-y: contain;
 }
 
 /* ── Sidebar Scrollbar ─────────────────────────────────────────── */
@@ -418,6 +365,28 @@ html, body, #root {
 
 .sidebar-list::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+}
+
+/* ── Sidebar Status (loading / empty) ──────────────────────────── */
+
+.sidebar-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  animation: status-pulse 2s ease-in-out infinite;
+}
+
+.sidebar-status-empty {
+  animation: none;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 
 /* ── Sidebar Resize Handle ─────────────────────────────────────── */
@@ -554,7 +523,18 @@ html, body, #root {
   object-fit: contain;
 }
 
-/* ── Thumbnail Loading ─────────────────────────────────────────── */
+/* ── Thumbnail Pending (not yet in viewport, no animation) ────── */
+
+.sidebar-thumbnail-pending {
+  /* static placeholder — no animation until IntersectionObserver fires */
+}
+
+.sidebar-thumbnail-pending .thumbnail-placeholder-icon {
+  color: var(--text-muted);
+  opacity: 0.25;
+}
+
+/* ── Thumbnail Loading (in viewport, fetching thumbnail) ───────── */
 
 .sidebar-thumbnail-loading {
   animation: thumbnail-pulse 2s ease-in-out infinite;

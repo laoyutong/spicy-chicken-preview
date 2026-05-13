@@ -90,6 +90,7 @@ function App() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ mode: "single" | "batch" } | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [loading, setLoading] = useState(false);
+  const [sidebarLoading, setSidebarLoading] = useState(false);
 
   // Recursive slideshow: when set, all images from this folder + subdirs are loaded
   const [recursiveRoot, setRecursiveRoot] = useState<string | null>(null);
@@ -569,6 +570,8 @@ function App() {
   const loadRecursiveFolder = useCallback(
     async (folderPath: string) => {
       setFilterMode("all");
+      setSelectedIndices(new Set());
+      setSidebarLoading(true);
       try {
         const result: {
           parent: string | null;
@@ -632,6 +635,8 @@ function App() {
         }
       } catch {
         setError("error.listFailed");
+      } finally {
+        setSidebarLoading(false);
       }
     },
     [meta.sortBy, meta.sortOrder, loadImage, addToRecentFolders, setFilterMode]
@@ -640,6 +645,8 @@ function App() {
   const loadFolder = useCallback(
     async (folderPath: string, selectFile?: string) => {
       setFilterMode("all");
+      setSelectedIndices(new Set());
+      setSidebarLoading(true);
       try {
         const result: {
           parent: string | null;
@@ -708,6 +715,8 @@ function App() {
         }
       } catch {
         setError("error.listFailed");
+      } finally {
+        setSidebarLoading(false);
       }
     },
     [loadImage, meta.sortBy, meta.sortOrder, addToRecentFolders, setFilterMode]
@@ -894,7 +903,8 @@ function App() {
         pz.zoomToward(r.width / 2, r.height / 2, -pz.ZOOM_STEP * 2);
       }
     } else if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
-      // Cmd/Ctrl + B : toggle sidebar
+      // Cmd/Ctrl + B : toggle sidebar (ignore during immersive — sidebar is hidden by CSS)
+      if (isImmersive) return;
       e.preventDefault();
       setSidebarVisible(v => !v);
     } else if (e.key === "Escape") {
@@ -905,6 +915,7 @@ function App() {
       if (isImmersive) {
         e.preventDefault();
         setIsImmersive(false);
+        setSidebarVisible(true);
       }
     } else if (e.key === "f" || e.key === "F") {
       // F: toggle native window fullscreen
@@ -1098,6 +1109,7 @@ function App() {
         currentIndex={currentIndex}
         onSelect={(index) => { resetSlideshowInterval(); jumpTo(index); }}
         visible={sidebarVisible}
+        loading={sidebarLoading}
         currentFolder={currentFolder}
         subdirs={subdirs}
         parentPath={currentFolder ? getParentDir(currentFolder) : null}
@@ -1126,6 +1138,7 @@ function App() {
           setCurrentFile(null);
           setCurrentFolder(null);
           setSubdirs([]);
+          setSelectedIndices(new Set());
           sourceImg.current = null;
         }}
       />
