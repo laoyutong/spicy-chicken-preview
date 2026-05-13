@@ -569,7 +569,6 @@ function App() {
 
   const loadRecursiveFolder = useCallback(
     async (folderPath: string) => {
-      setFilterMode("all");
       setSelectedIndices(new Set());
       setSidebarLoading(true);
       try {
@@ -607,7 +606,7 @@ function App() {
           addToRecentFolders(folderPath);
         }
 
-        if ((meta.sortBy === "dimensions" || meta.sortBy === "aspect-ratio") && sorted.length > 0) {
+        if ((meta.sortBy === "dimensions" || meta.sortBy === "aspect-ratio" || filterMode !== "all") && sorted.length > 0) {
           invoke<{ path: string; width: number; height: number }[]>(
             "get_images_dimensions", { filePaths: sorted },
           ).then((dims) => {
@@ -639,12 +638,11 @@ function App() {
         setSidebarLoading(false);
       }
     },
-    [meta.sortBy, meta.sortOrder, loadImage, addToRecentFolders, setFilterMode]
+    [meta.sortBy, meta.sortOrder, loadImage, addToRecentFolders, filterMode]
   );
 
   const loadFolder = useCallback(
     async (folderPath: string, selectFile?: string) => {
-      setFilterMode("all");
       setSelectedIndices(new Set());
       setSidebarLoading(true);
       try {
@@ -681,8 +679,8 @@ function App() {
 
         if (sorted.length > 0) addToRecentFolders(folderPath);
 
-        // For dimension-dependent sorts, load dimensions in background after first image is shown
-        if ((meta.sortBy === "dimensions" || meta.sortBy === "aspect-ratio") && sorted.length > 0) {
+        // For dimension-dependent sorts or filtering, load dimensions in background after first image is shown
+        if ((meta.sortBy === "dimensions" || meta.sortBy === "aspect-ratio" || filterMode !== "all") && sorted.length > 0) {
           const imagesToMeasure = sorted;
           invoke<{ path: string; width: number; height: number }[]>(
             "get_images_dimensions", { filePaths: imagesToMeasure },
@@ -719,7 +717,7 @@ function App() {
         setSidebarLoading(false);
       }
     },
-    [loadImage, meta.sortBy, meta.sortOrder, addToRecentFolders, setFilterMode]
+    [loadImage, meta.sortBy, meta.sortOrder, addToRecentFolders, filterMode]
   );
 
   const openFile = useCallback(async () => {

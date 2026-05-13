@@ -44,7 +44,7 @@ export function useImageMetadata({
   // Fetch dimensions when sorting by dimensions or aspect-ratio.
   // Always fetch from the unfiltered list so dimensions are cached for filter changes.
   useEffect(() => {
-    if (sortBy !== "dimensions" && sortBy !== "aspect-ratio") return;
+    if (sortBy !== "dimensions" && sortBy !== "aspect-ratio" && filterMode === "all") return;
     if (unfilteredImagesRef.current.length === 0) return;
 
     const missing = unfilteredImagesRef.current.filter((p) => {
@@ -74,7 +74,7 @@ export function useImageMetadata({
       .catch(() => {});
 
     return () => { cancelled = true; };
-  }, [sortBy, images.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sortBy, images.length, filterMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close sort dropdown on outside click
   useEffect(() => {
