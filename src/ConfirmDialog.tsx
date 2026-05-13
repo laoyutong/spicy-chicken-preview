@@ -31,6 +31,11 @@ export default function ConfirmDialog({
         onCancel();
         return;
       }
+      if (e.key === "Enter") {
+        e.stopPropagation();
+        onConfirm();
+        return;
+      }
       if (e.key === "Tab" && modalRef.current) {
         const focusable = modalRef.current.querySelectorAll<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -46,7 +51,7 @@ export default function ConfirmDialog({
         }
       }
     },
-    [onCancel]
+    [onCancel, onConfirm]
   );
 
   useEffect(() => {
