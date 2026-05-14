@@ -78,12 +78,19 @@ export function useFileOperations({
     if (imgs.length === 0) return;
     setContextMenu(null);
 
+    // Execute backend deletion first so UI stays consistent with disk.
+    try {
+      await invoke("move_to_trash", { filePath: currentFile });
+    } catch (err) {
+      console.error("Failed to move to trash:", err);
+      return;
+    }
+
     const idx = imageIndexMapRef.current.get(currentFile) ?? -1;
     if (idx < 0) return;
-
-    // Optimistic UI: update state immediately so the sidebar syncs
-    // without waiting for the backend filesystem operation.
     const newImages = imgs.filter((_, i) => i !== idx);
+
+    // Clean up unfiltered list so deleted files don't reappear on filter change
     const unfiltered = unfilteredImagesRef.current;
     const uIdx = unfiltered.indexOf(currentFile);
     if (uIdx >= 0) {
@@ -100,25 +107,18 @@ export function useFileOperations({
       setImageUrl(null);
       setCurrentFile(null);
       sourceImg.current = null;
-    } else {
-      const newIdx = idx >= newImages.length
-        ? Math.max(0, newImages.length - 1)
-        : idx;
-      setImages(newImages);
-      setCurrentIndex(newIdx);
-      imgW.current = 0;
-      imgH.current = 0;
-      sourceImg.current = null;
-      loadImage(newImages[newIdx], true);
+      return;
     }
 
-    // Backend deletion runs in background — if it fails the file stays
-    // on disk and will reappear on the next folder reload.
-    try {
-      await invoke("move_to_trash", { filePath: currentFile });
-    } catch (err) {
-      console.error("Failed to move to trash:", err);
-    }
+    const newIdx = idx >= newImages.length
+      ? Math.max(0, newImages.length - 1)
+      : idx;
+    setImages(newImages);
+    setCurrentIndex(newIdx);
+    imgW.current = 0;
+    imgH.current = 0;
+    sourceImg.current = null;
+    loadImage(newImages[newIdx], true);
   }, [currentFile, imagesRef, unfilteredImagesRef, currentIndexRef, imageMetaMapRef, imageCache, loadImage, setImages, setCurrentIndex, setImageUrl, setCurrentFile, imgW, imgH, sourceImg, setSelectedIndices]);
 
   const handleBatchDelete = useCallback(async () => {
@@ -132,7 +132,14 @@ export function useFileOperations({
     }
     if (paths.length === 0) return;
 
-    // Optimistic UI: update state immediately
+    // Execute backend deletion first so UI stays consistent with disk.
+    try {
+      await invoke("move_to_trash_batch", { filePaths: paths });
+    } catch {
+      // Continue cleanup even if some deletes failed
+    }
+
+    // Clean up unfiltered list so deleted files don't reappear on filter change
     const pathSet = new Set(paths);
     const remaining = imgs.filter((_, i) => !selectedIndices.has(i));
     unfilteredImagesRef.current = unfilteredImagesRef.current.filter(p => !pathSet.has(p));
@@ -149,22 +156,15 @@ export function useFileOperations({
       setImageUrl(null);
       setCurrentFile(null);
       sourceImg.current = null;
-    } else {
-      const currentPath = currentFile;
-      let newIdx = currentPath ? remaining.indexOf(currentPath) : -1;
-      if (newIdx < 0) newIdx = Math.min(currentIndexRef.current, remaining.length - 1);
-      setImages(remaining);
-      setCurrentIndex(newIdx);
-      imgW.current = 0; imgH.current = 0; sourceImg.current = null;
-      loadImage(remaining[newIdx], true);
+      return;
     }
-
-    // Backend deletion in background
-    try {
-      await invoke("move_to_trash_batch", { filePaths: paths });
-    } catch {
-      // Continue cleanup even if some deletes failed
-    }
+    const currentPath = currentFile;
+    let newIdx = currentPath ? remaining.indexOf(currentPath) : -1;
+    if (newIdx < 0) newIdx = Math.min(currentIndexRef.current, remaining.length - 1);
+    setImages(remaining);
+    setCurrentIndex(newIdx);
+    imgW.current = 0; imgH.current = 0; sourceImg.current = null;
+    loadImage(remaining[newIdx], true);
   }, [selectedIndices, currentFile, imagesRef, unfilteredImagesRef, currentIndexRef, imageMetaMapRef, imageCache, loadImage, setImages, setCurrentIndex, setImageUrl, setCurrentFile, imgW, imgH, sourceImg, setSelectedIndices]);
 
   // Close context menu on outside interaction
