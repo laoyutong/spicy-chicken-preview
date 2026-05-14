@@ -29,4 +29,5 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 arboard = "3"
 trash = "5"
 walkdir = "2"
+notify = "6"
 

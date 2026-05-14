@@ -117,6 +117,8 @@ function App() {
   const pendingImgRef = useRef<HTMLImageElement | null>(null);
   const loadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadDebounceStartRef = useRef(0);
+  const loadImageRef = useRef<(filePath: string, reset: boolean) => void>(() => {});
+  const currentFileRef = useRef(currentFile);
   const loadStartTimeRef = useRef(0);
 
   // File info for status bar
@@ -150,6 +152,7 @@ function App() {
   useEffect(() => { imagesRef.current = images; }, [images]);
   const currentIndexRef = useRef(currentIndex);
   useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+  useEffect(() => { currentFileRef.current = currentFile; }, [currentFile]);
 
   // O(1) lookup maps for hot paths (indexOf / includes on large lists)
   const imageIndexMapRef = useRef<Map<string, number>>(new Map());
@@ -507,6 +510,10 @@ function App() {
     [draw, images, preloadAdjacent]
   );
 
+  // Sync loadImage to a ref so the file-removed listener can call it
+  // without being re-registered when loadImage dependencies change.
+  useEffect(() => { loadImageRef.current = loadImage; }, [loadImage]);
+
   // ── Slideshow ─────────────────────────────────────────────────
   const {
     slideshowActive, setSlideshowActive,
@@ -651,6 +658,9 @@ function App() {
           }
           meta.setMetaVersion((v) => v + 1);
         }
+
+        // Start watching for external file changes (recursive mode)
+        invoke("start_watching", { folderPath, recursive: true }).catch(() => {});
       } catch {
         setError("error.listFailed");
       } finally {
@@ -753,6 +763,9 @@ function App() {
           }
           meta.setMetaVersion((v) => v + 1);
         }
+
+        // Start watching for external file changes
+        invoke("start_watching", { folderPath, recursive: false }).catch(() => {});
       } catch {
         setError("error.listFailed");
       } finally {
@@ -1018,6 +1031,57 @@ function App() {
     };
   }, [loadImage, loadOpenedFile]);
 
+  // Listen for external file removals (Finder, terminal, etc.)
+  // All state accessed via refs so the listener is registered only once.
+  useEffect(() => {
+    const unlistenPromise = listen<string>("file-removed", (event) => {
+      const removedPath = event.payload;
+
+      // Clean up unfiltered list so deleted files don't reappear on filter change
+      const unfiltered = unfilteredImagesRef.current;
+      const uIdx = unfiltered.indexOf(removedPath);
+      if (uIdx >= 0) {
+        unfilteredImagesRef.current = unfiltered.filter((_, i) => i !== uIdx);
+      }
+
+      // Clean up caches
+      meta.imageMetaMapRef.current.delete(removedPath);
+      imageCache.current.delete(removedPath);
+
+      // If not in the currently displayed (filtered) list, we're done
+      if (!imageSetRef.current.has(removedPath)) return;
+
+      const imgs = imagesRef.current;
+      const idx = imageIndexMapRef.current.get(removedPath) ?? -1;
+      if (idx < 0) return;
+
+      const newImages = imgs.filter(p => p !== removedPath);
+      setSelectedIndices(new Set());
+
+      if (newImages.length === 0) {
+        setImages([]);
+        setCurrentIndex(0);
+        setImageUrl(null);
+        setCurrentFile(null);
+        sourceImg.current = null;
+        return;
+      }
+
+      const isCurrentFile = currentFileRef.current === removedPath;
+      setImages(newImages);
+
+      if (isCurrentFile) {
+        const newIdx = Math.min(idx, newImages.length - 1);
+        setCurrentIndex(newIdx);
+        loadImageRef.current(newImages[newIdx], true);
+      } else if (idx < currentIndexRef.current) {
+        setCurrentIndex(prev => prev - 1);
+      }
+    });
+
+    return () => { unlistenPromise.then(fn => fn()); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Close sort dropdown on outside click
   useEffect(() => {
     if (!meta.sortDropdownOpen) return;
@@ -1182,6 +1246,7 @@ function App() {
           setSubdirs([]);
           setSelectedIndices(new Set());
           sourceImg.current = null;
+          invoke("stop_watching").catch(() => {});
         }}
         isImmersive={isImmersive}
       />

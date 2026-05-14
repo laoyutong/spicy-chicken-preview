@@ -5,6 +5,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::{Condvar, Mutex};
 use std::time::SystemTime;
+use notify::{Event, EventKind, RecursiveMode, Watcher};
 use tauri::Emitter;
 use tauri::Manager;
 use walkdir::WalkDir;
@@ -695,6 +696,57 @@ fn url_to_file_path(url_str: &str) -> Option<String> {
     None
 }
 
+// File system watcher state
+struct FileWatcher(Mutex<Option<notify::RecommendedWatcher>>);
+
+#[tauri::command]
+fn start_watching(
+    folder_path: &str,
+    recursive: bool,
+    app_handle: tauri::AppHandle,
+    watcher_state: tauri::State<'_, FileWatcher>,
+) -> Result<(), String> {
+    // Drop any existing watcher first
+    *watcher_state.0.lock().unwrap() = None;
+
+    let path = Path::new(folder_path).to_path_buf();
+    let app_handle_clone = app_handle.clone();
+
+    let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+        match res {
+            Ok(event) => {
+                // Only care about file removals
+                if matches!(event.kind, EventKind::Remove(_)) {
+                    for path in &event.paths {
+                        let _ = app_handle_clone.emit(
+                            "file-removed",
+                            path.to_string_lossy().to_string(),
+                        );
+                    }
+                }
+            }
+            Err(e) => eprintln!("watch error: {:?}", e),
+        }
+    })
+    .map_err(|e| format!("Failed to create watcher: {}", e))?;
+
+    let mode = if recursive {
+        RecursiveMode::Recursive
+    } else {
+        RecursiveMode::NonRecursive
+    };
+
+    watcher.watch(&path, mode).map_err(|e| format!("Failed to watch: {}", e))?;
+
+    *watcher_state.0.lock().unwrap() = Some(watcher);
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_watching(watcher_state: tauri::State<'_, FileWatcher>) {
+    *watcher_state.0.lock().unwrap() = None;
+}
+
 // Keep the display awake (macOS: spawn/kill caffeinate)
 static CAFFEINATE: Mutex<Option<std::process::Child>> = Mutex::new(None);
 
@@ -743,8 +795,11 @@ pub fn run() {
             move_to_trash,
             move_to_trash_batch,
             set_desktop_background,
-            keep_awake
+            keep_awake,
+            start_watching,
+            stop_watching
         ])
+        .manage(FileWatcher(Mutex::new(None)))
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 let app_handle = app.handle().clone();
