@@ -776,20 +776,10 @@ function App() {
   );
 
   const openFile = useCallback(async () => {
-    const selected = await open({
-      multiple: false,
-      filters: [{
-        name: "Images",
-        extensions: [
-          "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "tiff", "tif", "heic", "heif",
-        ],
-      }],
-    });
-
+    const selected = await open({ directory: true });
     if (selected) {
       setRecursiveRoot(null);
-      const folderPath = getParentDir(selected as string);
-      await loadFolder(folderPath, selected as string);
+      await loadFolder(selected as string);
     }
   }, [loadFolder]);
 

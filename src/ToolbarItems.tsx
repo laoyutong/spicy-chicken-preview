@@ -4,7 +4,7 @@ import type { ToolbarItemDef } from "./Toolbar";
 import type { SortMode, FilterMode } from "./utils/sorting";
 import type { SlideshowMode } from "./hooks/useSlideshow";
 import {
-  OpenIcon, FolderIcon, ShortcutsIcon, ShortcutsIconSmall,
+  FolderIcon, ShortcutsIcon, ShortcutsIconSmall,
   SidebarIcon, SidebarIconSmall, ChevronDownIcon,
   ChevronLeftIcon, ChevronRightIcon,
   PlayIcon, PauseIcon, CloseIcon,
@@ -61,14 +61,14 @@ function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
     items.push({
       id: "open", section: "left", priority: 0, condition: true,
       renderToolbar: () => (
-        <button className="toolbar-btn" onClick={openFile} title={t("toolbar.openImage", language)}>
-          <OpenIcon size={20} />
+        <button className="toolbar-btn" onClick={openFile} title={t("toolbar.openFolder", language)}>
+          <FolderIcon size={18} />
         </button>
       ),
       renderMenu: () => (
         <button className="toolbar-more-item" onClick={openFile}>
           <FolderIcon size={16} />
-          {t("toolbar.openImage", language)}
+          {t("toolbar.openFolder", language)}
         </button>
       ),
     });
