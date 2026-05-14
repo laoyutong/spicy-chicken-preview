@@ -106,6 +106,7 @@ const Sidebar = memo(function Sidebar({
   const rafRef = useRef(0);
   const scrollTimerRef = useRef(0);
   const skipIndexScrollRef = useRef(false);
+  const lastScrollTriggerRef = useRef(0);
 
   const displayItems = useMemo(
     () => images.map((path, i) => ({ path, originalIndex: i })),
@@ -201,7 +202,14 @@ const Sidebar = memo(function Sidebar({
       return;
     }
 
-    // Debounce rapid navigation to prevent stacking smooth-scroll animations
+    const now = Date.now();
+    // Adaptive debounce: isolated triggers (deletion, single click) scroll
+    // immediately; rapid repeated triggers (key-repeat navigation) are
+    // debounced to prevent stacking smooth-scroll animations.
+    const elapsed = now - lastScrollTriggerRef.current;
+    lastScrollTriggerRef.current = now;
+    const delay = elapsed > 100 ? 0 : 80;
+
     if (scrollTimerRef.current) {
       clearTimeout(scrollTimerRef.current);
     }
@@ -251,7 +259,7 @@ const Sidebar = memo(function Sidebar({
         pos * ITEM_HEIGHT - listEl.clientHeight / 2 + ITEM_HEIGHT / 2,
       );
       listEl.scrollTo({ top: targetTop, behavior: "smooth" });
-    }, 80);
+    }, delay);
 
     return () => {
       if (scrollTimerRef.current) {
