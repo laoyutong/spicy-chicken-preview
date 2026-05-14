@@ -173,14 +173,21 @@ function App() {
     const currentPath = currentFile;
     const filtered = filterImagePaths(unfilteredImagesRef.current, filterMode, meta.imageMetaMapRef.current);
     if (filtered.length === 0) return;
-    setImages(filtered);
-    if (currentPath) {
-      const newIdx = filtered.indexOf(currentPath);
-      if (newIdx >= 0) {
-        setCurrentIndex(newIdx);
-      } else {
-        setCurrentIndex(0);
-        loadImage(filtered[0], true);
+
+    // Avoid triggering a heavy re-render when the list hasn't actually
+    // changed (e.g. shape filter with no dimensions loaded yet).
+    const listChanged = filtered.length !== images.length
+      || filtered.some((p, i) => p !== images[i]);
+    if (listChanged) {
+      setImages(filtered);
+      if (currentPath) {
+        const newIdx = filtered.indexOf(currentPath);
+        if (newIdx >= 0) {
+          if (newIdx !== currentIndex) setCurrentIndex(newIdx);
+        } else {
+          setCurrentIndex(0);
+          loadImage(filtered[0], true);
+        }
       }
     }
 
@@ -189,46 +196,29 @@ function App() {
         const m = meta.imageMetaMapRef.current.get(p);
         return !m || m.width === undefined;
       });
-      if (missing.length > 0) {
-        setFilterLoading(true);
-        // Fetch dimensions in chunks so the UI updates progressively
-        const CHUNK = 100;
-        (async () => {
-          let hasNew = false;
-          try {
-            for (let i = 0; i < missing.length; i += CHUNK) {
-              const batch = missing.slice(i, i + CHUNK);
-              const dims = await invoke<{ path: string; width: number; height: number }[]>(
-                "get_images_dimensions", { filePaths: batch },
-              );
-              const map = meta.imageMetaMapRef.current;
-              for (const d of dims) {
-                const existing = map.get(d.path);
-                if (existing && existing.width === undefined) {
-                  existing.width = d.width;
-                  existing.height = d.height;
-                  hasNew = true;
-                }
-              }
-              if (hasNew) {
-                meta.setMetaVersion((v) => v + 1);
-                // Apply filter immediately with newly loaded dimensions
-                const reFiltered = filterImagePaths(
-                  unfilteredImagesRef.current, filterMode, meta.imageMetaMapRef.current,
-                );
-                setImages(reFiltered);
-                if (currentFile && !reFiltered.includes(currentFile) && reFiltered.length > 0) {
-                  loadImage(reFiltered[0], true);
-                }
-                hasNew = false;
-              }
-            }
-          } catch { /* ignore */ }
-          setFilterLoading(false);
-        })();
+      if (missing.length === 0) {
+        setFilterLoading(false);
       }
+      // When dimensions are missing, the useImageMetadata sort effect
+      // loads them in one batch call (already triggered via its
+      // filterMode dependency). A separate metaVersion watcher clears
+      // filterLoading once all dimensions arrive.
+    } else {
+      setFilterLoading(false);
     }
   }, [filterMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear filterLoading once the sort effect's batch dimension load
+  // has populated all entries needed for the current shape filter.
+  useEffect(() => {
+    if (!filterLoading || filterMode === "all") return;
+    if (unfilteredImagesRef.current.length === 0) return;
+    const allLoaded = !unfilteredImagesRef.current.some((p) => {
+      const m = meta.imageMetaMapRef.current.get(p);
+      return !m || m.width === undefined;
+    });
+    if (allLoaded) setFilterLoading(false);
+  }, [meta.metaVersion, filterLoading, filterMode]);
 
   // When images change (filter/sort), if the current file is no longer
   // in the list, switch to the first image.
@@ -1115,6 +1105,8 @@ function App() {
     },
     filterMode,
     setFilterMode,
+    filterLoading,
+    setFilterLoading,
     filterDropdownOpen,
     setFilterDropdownOpen,
     filterDropdownRef,

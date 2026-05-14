@@ -316,6 +316,24 @@
   transition: background 0.15s ease, color 0.15s ease;
 }
 
+.filter-btn.loading {
+  pointer-events: none;
+}
+
+.filter-spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--text-muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: filter-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes filter-spin {
+  to { transform: rotate(360deg); }
+}
+
 .filter-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);

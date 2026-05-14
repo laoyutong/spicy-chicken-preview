@@ -30,6 +30,8 @@ interface UseToolbarItemsParams {
   onExitRecursive: () => void;
   filterMode: FilterMode;
   setFilterMode: Dispatch<SetStateAction<FilterMode>>;
+  filterLoading: boolean;
+  setFilterLoading: Dispatch<SetStateAction<boolean>>;
   filterDropdownOpen: boolean;
   setFilterDropdownOpen: Dispatch<SetStateAction<boolean>>;
   filterDropdownRef: { current: HTMLDivElement | null };
@@ -49,7 +51,7 @@ interface UseToolbarItemsParams {
 function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
   const {
     language, showExtras, sidebarVisible, fileName,
-    sortBy, sortOrder, sortDropdownOpen, filterMode, setFilterMode, filterDropdownOpen, setFilterDropdownOpen, filterDropdownRef,
+    sortBy, sortOrder, sortDropdownOpen, filterMode, setFilterMode, filterLoading, setFilterLoading, filterDropdownOpen, setFilterDropdownOpen, filterDropdownRef,
     openFile, setSortBy, setSortDropdownOpen, setSortOrder, setSidebarVisible, setShortcutsOpen,
   } = params;
 
@@ -159,10 +161,11 @@ function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
       renderToolbar: () => (
         <div className="filter-controls" ref={filterDropdownRef}>
           <button
-            className={`filter-btn${filterMode !== "all" ? " active" : ""}`}
+            className={`filter-btn${filterMode !== "all" ? " active" : ""}${filterLoading ? " loading" : ""}`}
             onClick={() => setFilterDropdownOpen((o) => !o)}
             title={translate(`filter.${filterMode}`, language)}
           >
+            {filterLoading && <span className="filter-spinner" />}
             <span className="filter-label">{translate(`filter.${filterMode}`, language)}</span>
             <span className="filter-chevron"><ChevronDownIcon size={8} /></span>
           </button>
@@ -172,7 +175,7 @@ function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
                 <button
                   key={mode}
                   className={`filter-dropdown-item${mode === filterMode ? " active" : ""}`}
-                  onClick={() => { setFilterMode(mode); setFilterDropdownOpen(false); }}
+                  onClick={() => { if (mode !== filterMode) { if (mode !== "all") setFilterLoading(true); setFilterMode(mode); } setFilterDropdownOpen(false); }}
                 >
                   {translate(`filter.${mode}`, language)}
                 </button>
@@ -188,7 +191,7 @@ function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
             <button
               key={mode}
               className={`toolbar-more-item${mode === filterMode ? " active" : ""}`}
-              onClick={() => setFilterMode(mode)}
+              onClick={() => { if (mode !== filterMode) { if (mode !== "all") setFilterLoading(true); setFilterMode(mode); } }}
             >
               {translate(`filter.${mode}`, language)}
             </button>
@@ -204,7 +207,7 @@ function ToolbarLeftItems(params: UseToolbarItemsParams): ToolbarItemDef[] {
     });
 
     return items;
-  }, [language, showExtras, sidebarVisible, fileName, sortBy, sortOrder, sortDropdownOpen, filterMode, setFilterMode, filterDropdownOpen, setFilterDropdownOpen, filterDropdownRef, openFile, setSortBy, setSortDropdownOpen, setSortOrder, setSidebarVisible, setShortcutsOpen]);
+  }, [language, showExtras, sidebarVisible, fileName, sortBy, sortOrder, sortDropdownOpen, filterMode, setFilterMode, filterLoading, setFilterLoading, filterDropdownOpen, setFilterDropdownOpen, filterDropdownRef, openFile, setSortBy, setSortDropdownOpen, setSortOrder, setSidebarVisible, setShortcutsOpen]);
 }
 
 function ToolbarCenterItems(params: UseToolbarItemsParams): ToolbarItemDef[] {

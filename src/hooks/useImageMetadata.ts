@@ -43,6 +43,8 @@ export function useImageMetadata({
 
   // Fetch dimensions when sorting by dimensions or aspect-ratio.
   // Always fetch from the unfiltered list so dimensions are cached for filter changes.
+  // Process in chunks so the UI updates incrementally — avoids the feeling of
+  // being "stuck" when filtering large recursive folders.
   useEffect(() => {
     if (sortBy !== "dimensions" && sortBy !== "aspect-ratio" && filterMode === "all") return;
     if (unfilteredImagesRef.current.length === 0) return;
@@ -54,24 +56,37 @@ export function useImageMetadata({
 
     if (missing.length === 0) return;
 
+    const CHUNK_SIZE = 300;
     let cancelled = false;
-    invoke<{ path: string; width: number; height: number }[]>(
-      "get_images_dimensions",
-      { filePaths: missing },
-    )
-      .then((dims) => {
+
+    async function loadInChunks() {
+      for (let i = 0; i < missing.length; i += CHUNK_SIZE) {
         if (cancelled) return;
-        const map = imageMetaMapRef.current;
-        for (const d of dims) {
-          const existing = map.get(d.path);
-          if (existing) {
-            existing.width = d.width;
-            existing.height = d.height;
+        const chunk = missing.slice(i, i + CHUNK_SIZE);
+        try {
+          const dims = await invoke<{ path: string; width: number; height: number }[]>(
+            "get_images_dimensions",
+            { filePaths: chunk },
+          );
+          if (cancelled) return;
+          const map = imageMetaMapRef.current;
+          for (const d of dims) {
+            const existing = map.get(d.path);
+            if (existing) {
+              existing.width = d.width;
+              existing.height = d.height;
+            }
           }
+          setMetaVersion((v) => v + 1);
+          // Yield to the browser so React can re-render between chunks
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        } catch {
+          // Continue to next chunk on error
         }
-        setMetaVersion((v) => v + 1);
-      })
-      .catch(() => {});
+      }
+    }
+
+    loadInChunks();
 
     return () => { cancelled = true; };
   }, [sortBy, images.length, filterMode]); // eslint-disable-line react-hooks/exhaustive-deps
