@@ -533,6 +533,7 @@ function App() {
     selectedIndices,
     setSelectedIndices,
     imagesRef,
+    unfilteredImagesRef,
     currentIndexRef,
     imageMetaMapRef: meta.imageMetaMapRef,
     imageIndexMapRef,

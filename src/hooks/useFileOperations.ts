@@ -8,6 +8,7 @@ interface UseFileOperationsParams {
   selectedIndices: Set<number>;
   setSelectedIndices: Dispatch<SetStateAction<Set<number>>>;
   imagesRef: MutableRefObject<string[]>;
+  unfilteredImagesRef: MutableRefObject<string[]>;
   currentIndexRef: MutableRefObject<number>;
   imageMetaMapRef: MutableRefObject<Map<string, ImageMetaRecord>>;
   imageIndexMapRef: MutableRefObject<Map<string, number>>;
@@ -24,7 +25,7 @@ interface UseFileOperationsParams {
 
 export function useFileOperations({
   currentFile, selectedIndices, setSelectedIndices,
-  imagesRef, currentIndexRef,
+  imagesRef, unfilteredImagesRef, currentIndexRef,
   imageMetaMapRef, imageIndexMapRef, imageCache, loadImage,
   setImages, setCurrentIndex, setImageUrl, setCurrentFile,
   imgW, imgH, sourceImg,
@@ -76,18 +77,22 @@ export function useFileOperations({
     const imgs = imagesRef.current;
     if (imgs.length === 0) return;
     setContextMenu(null);
-    try {
-      await invoke("move_to_trash", { filePath: currentFile });
-    } catch (err) {
-      console.error("Failed to move to trash:", err);
-      return;
-    }
-    imageMetaMapRef.current.delete(currentFile);
-    imageCache.current.delete(currentFile);
 
     const idx = imageIndexMapRef.current.get(currentFile) ?? -1;
-    if (idx < 0) return; // file not in list
+    if (idx < 0) return;
+
+    // Optimistic UI: update state immediately so the sidebar syncs
+    // without waiting for the backend filesystem operation.
     const newImages = imgs.filter((_, i) => i !== idx);
+    const unfiltered = unfilteredImagesRef.current;
+    const uIdx = unfiltered.indexOf(currentFile);
+    if (uIdx >= 0) {
+      unfilteredImagesRef.current = unfiltered.filter((_, i) => i !== uIdx);
+    }
+
+    imageMetaMapRef.current.delete(currentFile);
+    imageCache.current.delete(currentFile);
+    setSelectedIndices(new Set());
 
     if (newImages.length === 0) {
       setImages([]);
@@ -95,19 +100,26 @@ export function useFileOperations({
       setImageUrl(null);
       setCurrentFile(null);
       sourceImg.current = null;
-      return;
+    } else {
+      const newIdx = idx >= newImages.length
+        ? Math.max(0, newImages.length - 1)
+        : idx;
+      setImages(newImages);
+      setCurrentIndex(newIdx);
+      imgW.current = 0;
+      imgH.current = 0;
+      sourceImg.current = null;
+      loadImage(newImages[newIdx], true);
     }
 
-    const newIdx = idx >= newImages.length
-      ? Math.max(0, newImages.length - 1)
-      : idx;
-    setImages(newImages);
-    setCurrentIndex(newIdx);
-    imgW.current = 0;
-    imgH.current = 0;
-    sourceImg.current = null;
-    loadImage(newImages[newIdx], true);
-  }, [currentFile, imagesRef, currentIndexRef, imageMetaMapRef, imageCache, loadImage, setImages, setCurrentIndex, setImageUrl, setCurrentFile, imgW, imgH, sourceImg]);
+    // Backend deletion runs in background — if it fails the file stays
+    // on disk and will reappear on the next folder reload.
+    try {
+      await invoke("move_to_trash", { filePath: currentFile });
+    } catch (err) {
+      console.error("Failed to move to trash:", err);
+    }
+  }, [currentFile, imagesRef, unfilteredImagesRef, currentIndexRef, imageMetaMapRef, imageCache, loadImage, setImages, setCurrentIndex, setImageUrl, setCurrentFile, imgW, imgH, sourceImg, setSelectedIndices]);
 
   const handleBatchDelete = useCallback(async () => {
     if (selectedIndices.size === 0) return;
@@ -120,34 +132,40 @@ export function useFileOperations({
     }
     if (paths.length === 0) return;
 
-    try {
-      await invoke("move_to_trash_batch", { filePaths: paths });
-    } catch {
-      // Continue cleanup even if some deletes failed
-    }
+    // Optimistic UI: update state immediately
+    const pathSet = new Set(paths);
+    const remaining = imgs.filter((_, i) => !selectedIndices.has(i));
+    unfilteredImagesRef.current = unfilteredImagesRef.current.filter(p => !pathSet.has(p));
+
     for (const path of paths) {
       imageMetaMapRef.current.delete(path);
       imageCache.current.delete(path);
     }
     setSelectedIndices(new Set());
 
-    const remaining = imgs.filter((_, i) => !selectedIndices.has(i));
     if (remaining.length === 0) {
       setImages([]);
       setCurrentIndex(0);
       setImageUrl(null);
       setCurrentFile(null);
       sourceImg.current = null;
-      return;
+    } else {
+      const currentPath = currentFile;
+      let newIdx = currentPath ? remaining.indexOf(currentPath) : -1;
+      if (newIdx < 0) newIdx = Math.min(currentIndexRef.current, remaining.length - 1);
+      setImages(remaining);
+      setCurrentIndex(newIdx);
+      imgW.current = 0; imgH.current = 0; sourceImg.current = null;
+      loadImage(remaining[newIdx], true);
     }
-    const currentPath = currentFile;
-    let newIdx = currentPath ? remaining.indexOf(currentPath) : -1;
-    if (newIdx < 0) newIdx = Math.min(currentIndexRef.current, remaining.length - 1);
-    setImages(remaining);
-    setCurrentIndex(newIdx);
-    imgW.current = 0; imgH.current = 0; sourceImg.current = null;
-    loadImage(remaining[newIdx], true);
-  }, [selectedIndices, currentFile, imagesRef, currentIndexRef, imageMetaMapRef, imageCache, loadImage, setImages, setCurrentIndex, setImageUrl, setCurrentFile, imgW, imgH, sourceImg, setSelectedIndices]);
+
+    // Backend deletion in background
+    try {
+      await invoke("move_to_trash_batch", { filePaths: paths });
+    } catch {
+      // Continue cleanup even if some deletes failed
+    }
+  }, [selectedIndices, currentFile, imagesRef, unfilteredImagesRef, currentIndexRef, imageMetaMapRef, imageCache, loadImage, setImages, setCurrentIndex, setImageUrl, setCurrentFile, imgW, imgH, sourceImg, setSelectedIndices]);
 
   // Close context menu on outside interaction
   useEffect(() => {
