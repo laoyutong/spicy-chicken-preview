@@ -624,9 +624,14 @@ function App() {
           }).catch(() => {});
         }
 
-        if (sorted.length > 0) {
+        // Use the first image from the displayed (post-group/filter) array,
+        // not sorted, because groupByFolder may reorder the list — sorted[0]
+        // and filtered[0] can be different images.
+        let initialFile: string | null = null;
+        if (filtered.length > 0) {
+          initialFile = filtered[0];
           setCurrentIndex(0);
-          await loadImage(sorted[0], true);
+          await loadImage(initialFile, true);
         } else {
           setCurrentIndex(0);
           setCurrentFile(null);
@@ -643,6 +648,16 @@ function App() {
           unfilteredImagesRef.current = reGrouped;
           const reFiltered = filterImagePaths(reGrouped, filterMode, map);
           setImages(reFiltered);
+          // Re-sync currentIndex to the still-loaded image after sort/filter
+          if (initialFile) {
+            const newIdx = reFiltered.indexOf(initialFile);
+            if (newIdx >= 0) {
+              setCurrentIndex(newIdx);
+            } else if (reFiltered.length > 0) {
+              setCurrentIndex(0);
+              loadImage(reFiltered[0], true);
+            }
+          }
           meta.setMetaVersion((v) => v + 1);
         }
       } catch {
@@ -710,13 +725,16 @@ function App() {
           }).catch(() => {});
         }
 
+        let initialFile: string | null = null;
         if (selectFile && sorted.includes(selectFile)) {
+          initialFile = selectFile;
           const idx = sorted.indexOf(selectFile);
           setCurrentIndex(idx);
-          await loadImage(selectFile, true);
+          await loadImage(initialFile, true);
         } else if (sorted.length > 0) {
+          initialFile = sorted[0];
           setCurrentIndex(0);
-          await loadImage(sorted[0], true);
+          await loadImage(initialFile, true);
         } else {
           setCurrentIndex(0);
           setCurrentFile(null);
@@ -732,6 +750,16 @@ function App() {
           unfilteredImagesRef.current = reSorted;
           const reFiltered = filterImagePaths(reSorted, filterMode, map);
           setImages(reFiltered);
+          // Re-sync currentIndex to the still-loaded image after sort/filter
+          if (initialFile) {
+            const newIdx = reFiltered.indexOf(initialFile);
+            if (newIdx >= 0) {
+              setCurrentIndex(newIdx);
+            } else if (reFiltered.length > 0) {
+              setCurrentIndex(0);
+              loadImage(reFiltered[0], true);
+            }
+          }
           meta.setMetaVersion((v) => v + 1);
         }
       } catch {
