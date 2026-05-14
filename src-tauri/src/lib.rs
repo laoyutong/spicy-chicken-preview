@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::{Condvar, Mutex};
 use std::time::SystemTime;
-use notify::{Event, EventKind, RecursiveMode, Watcher};
+use notify::{Event, RecursiveMode, Watcher};
 use tauri::Emitter;
 use tauri::Manager;
 use walkdir::WalkDir;
@@ -715,9 +715,11 @@ fn start_watching(
     let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
         match res {
             Ok(event) => {
-                // Only care about file removals
-                if matches!(event.kind, EventKind::Remove(_)) {
-                    for path in &event.paths {
+                // Check whether each affected path still exists.
+                // macOS FSEvents doesn't always give per-file granularity,
+                // so we check existence rather than relying on event kind.
+                for path in &event.paths {
+                    if !path.exists() {
                         let _ = app_handle_clone.emit(
                             "file-removed",
                             path.to_string_lossy().to_string(),
