@@ -84,6 +84,10 @@ const dict = {
     "confirm.delete.batch": "Are you sure you want to move {count} selected images to the Trash?",
     "confirm.delete.cancel": "Cancel",
     "confirm.delete.confirm": "Move to Trash",
+    "confirm.deleteFolder.title": "Move Folder to Trash",
+    "confirm.deleteFolder.message": "Are you sure you want to move this folder and all its contents to the Trash?",
+    "confirm.deleteFolder.confirm": "Move to Trash",
+    "confirm.deleteFolder.cancel": "Cancel",
   },
   zh: {
     "error.loadFailed": "图片加载失败",
@@ -168,6 +172,10 @@ const dict = {
     "confirm.delete.batch": "确定要将选中的 {count} 张图片移到废纸篓吗？",
     "confirm.delete.cancel": "取消",
     "confirm.delete.confirm": "移到废纸篓",
+    "confirm.deleteFolder.title": "将文件夹移到废纸篓",
+    "confirm.deleteFolder.message": "确定要将此文件夹及其所有内容移到废纸篓吗？",
+    "confirm.deleteFolder.confirm": "移到废纸篓",
+    "confirm.deleteFolder.cancel": "取消",
   },
 };
 

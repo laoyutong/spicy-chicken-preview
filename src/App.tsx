@@ -88,6 +88,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ mode: "single" | "batch" } | null>(null);
+  const [deleteFolderConfirm, setDeleteFolderConfirm] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [loading, setLoading] = useState(false);
   const [sidebarLoading, setSidebarLoading] = useState(false);
@@ -880,6 +881,28 @@ function App() {
     }
   }, [currentFolder, loadFolder]);
 
+  const handleDeleteFolder = useCallback(async (folderPath: string) => {
+    try {
+      await invoke("move_folder_to_trash", { folderPath });
+    } catch (err) {
+      console.error("Failed to delete folder:", err);
+      return;
+    }
+
+    // Remove the deleted folder from subdirs
+    setSubdirs(prev => prev.filter(d => d.path !== folderPath));
+
+    // If we're currently inside the deleted folder (or a subfolder of it),
+    // navigate to the parent folder.
+    if (currentFolder && currentFolder.startsWith(folderPath)) {
+      const parentPath = getParentDir(folderPath);
+      if (parentPath && parentPath !== folderPath) {
+        setRecursiveRoot(null);
+        await loadFolder(parentPath);
+      }
+    }
+  }, [currentFolder, loadFolder]);
+
   // Auto-show sidebar when a folder is loaded or recent folders exist
   useEffect(() => {
     if (images.length > 0 || currentFolder || recentFolders.length > 0) {
@@ -951,7 +974,7 @@ function App() {
       e.preventDefault();
       setSidebarVisible(v => !v);
     } else if (e.key === "Escape") {
-      if (settingsOpen || shortcutsOpen || deleteConfirm) {
+      if (settingsOpen || shortcutsOpen || deleteConfirm || deleteFolderConfirm) {
         // Handled by respective modal's own keydown listener
         return;
       }
@@ -1238,6 +1261,7 @@ function App() {
           sourceImg.current = null;
           invoke("stop_watching").catch(() => {});
         }}
+        onRequestDeleteFolder={(path) => setDeleteFolderConfirm(path)}
         isImmersive={isImmersive}
       />
       <div className="viewer-right">
@@ -1413,6 +1437,23 @@ function App() {
             }
           }}
           onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+
+      {deleteFolderConfirm && (
+        <ConfirmDialog
+          open={true}
+          title={t("confirm.deleteFolder.title", language)}
+          message={t("confirm.deleteFolder.message", language)}
+          confirmLabel={t("confirm.deleteFolder.confirm", language)}
+          cancelLabel={t("confirm.deleteFolder.cancel", language)}
+          danger
+          onConfirm={async () => {
+            const folderPath = deleteFolderConfirm;
+            setDeleteFolderConfirm(null);
+            await handleDeleteFolder(folderPath);
+          }}
+          onCancel={() => setDeleteFolderConfirm(null)}
         />
       )}
 

@@ -650,6 +650,12 @@ fn move_to_trash(file_path: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn move_folder_to_trash(folder_path: &str) -> Result<(), String> {
+    trash::delete(folder_path).map_err(|e| format!("Failed to move folder to trash: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
 fn move_to_trash_batch(file_paths: Vec<String>) -> Result<(), String> {
     let mut errors: Vec<String> = Vec::new();
     for path in &file_paths {
@@ -795,6 +801,7 @@ pub fn run() {
             copy_image_to_clipboard,
             reveal_in_finder,
             move_to_trash,
+            move_folder_to_trash,
             move_to_trash_batch,
             set_desktop_background,
             keep_awake,

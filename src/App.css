@@ -820,6 +820,32 @@ html, body, #root {
   color: var(--text-primary);
 }
 
+.sidebar-folder-delete {
+  flex-shrink: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  opacity: 0;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.sidebar-folder-item:hover .sidebar-folder-delete {
+  opacity: 0.6;
+}
+
+.sidebar-folder-delete:hover {
+  opacity: 1 !important;
+  color: #e53e3e;
+  background: rgba(229, 62, 62, 0.12);
+}
+
 /* ── Recursive Play Link ────────────────────────────────────────── */
 
 .sidebar-folder-play {

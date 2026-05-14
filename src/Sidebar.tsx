@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback, useMemo, memo } from "react";
 import { t, type Language } from "./i18n";
 import { CachedThumbnail } from "./thumbnailCache";
-import { FolderIcon, CloseIcon } from "./icons";
+import { FolderIcon, CloseIcon, TrashIcon } from "./icons";
 
 interface SubdirInfo {
   name: string;
@@ -57,6 +57,7 @@ interface SidebarProps {
   recursiveRoot: string | null;
   onRecursivePlay: (folderPath: string) => void;
   onCloseFolder: () => void;
+  onRequestDeleteFolder: (folderPath: string) => void;
   isImmersive?: boolean;
 }
 
@@ -88,6 +89,7 @@ const Sidebar = memo(function Sidebar({
   recursiveRoot,
   onRecursivePlay,
   onCloseFolder,
+  onRequestDeleteFolder,
   isImmersive = false,
 }: SidebarProps) {
   const activeRef = useRef<HTMLDivElement>(null);
@@ -384,6 +386,13 @@ const Sidebar = memo(function Sidebar({
                 >
                   <span className="sidebar-folder-icon"><FolderIcon size={18} /></span>
                   <span className="sidebar-folder-name">{dir.name}</span>
+                  <button
+                    className="sidebar-folder-delete"
+                    onClick={(e) => { e.stopPropagation(); onRequestDeleteFolder(dir.path); }}
+                    title={language === "zh" ? "删除文件夹" : "Delete folder"}
+                  >
+                    <TrashIcon size={14} />
+                  </button>
                 </div>
               );
             })}
