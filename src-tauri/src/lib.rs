@@ -756,11 +756,20 @@ fn stop_watching(watcher_state: tauri::State<'_, FileWatcher>) {
 }
 
 // Keep the display awake (macOS: spawn/kill caffeinate)
-static CAFFEINATE: Mutex<Option<std::process::Child>> = Mutex::new(None);
+// Uses Tauri managed state so the process is killed on app exit (Drop).
+struct CaffeinateState(Mutex<Option<std::process::Child>>);
+
+impl Drop for CaffeinateState {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.lock().unwrap().take() {
+            let _ = child.kill();
+        }
+    }
+}
 
 #[tauri::command]
-fn keep_awake(enable: bool) -> Result<(), String> {
-    let mut guard = CAFFEINATE.lock().unwrap();
+fn keep_awake(enable: bool, state: tauri::State<'_, CaffeinateState>) -> Result<(), String> {
+    let mut guard = state.0.lock().unwrap();
     if enable {
         // Check if the existing caffeinate process is still alive
         let needs_spawn = match guard.as_mut() {
@@ -809,6 +818,7 @@ pub fn run() {
             stop_watching
         ])
         .manage(FileWatcher(Mutex::new(None)))
+        .manage(CaffeinateState(Mutex::new(None)))
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 let app_handle = app.handle().clone();

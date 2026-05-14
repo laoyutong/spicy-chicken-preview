@@ -42,6 +42,7 @@ const FullscreenStrip = memo(function FullscreenStrip({
   }, []);
 
   const mountedRef = useRef(false);
+  const animRafRef = useRef(0);
 
   // ── Scroll-position-based virtualization ─────────────────────────
 
@@ -59,6 +60,11 @@ const FullscreenStrip = memo(function FullscreenStrip({
 
   // Handle scroll events — rAF batched
   const scrollRafRef = useRef(0);
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+    };
+  }, []);
   const onScroll = useCallback(() => {
     if (scrollRafRef.current) return;
     scrollRafRef.current = requestAnimationFrame(() => {
@@ -109,15 +115,32 @@ const FullscreenStrip = memo(function FullscreenStrip({
     const startTime = performance.now();
     const el = strip;
 
+    // Cancel any in-progress animation before starting a new one
+    if (animRafRef.current) {
+      cancelAnimationFrame(animRafRef.current);
+      animRafRef.current = 0;
+    }
+
     function animate(now: number) {
       const elapsed = now - startTime;
       const t = Math.min(elapsed / duration, 1);
       const eased = 1 - Math.pow(1 - t, 3);
       el.scrollLeft = start + distance * eased;
       setScrollLeft(el.scrollLeft);
-      if (t < 1) requestAnimationFrame(animate);
+      if (t < 1) {
+        animRafRef.current = requestAnimationFrame(animate);
+      } else {
+        animRafRef.current = 0;
+      }
     }
-    requestAnimationFrame(animate);
+    animRafRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animRafRef.current) {
+        cancelAnimationFrame(animRafRef.current);
+        animRafRef.current = 0;
+      }
+    };
   }, [currentIndex]);
 
   // Show on mount, start hide timer

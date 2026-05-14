@@ -3,13 +3,22 @@ import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 // Cache asset protocol URLs — convertFileSrc is stable (same path → same URL)
+const MAX_FILE_SRC_CACHE = 500;
 const fileSrcCache = new Map<string, string>();
 function cachedConvertFileSrc(filePath: string): string {
   let url = fileSrcCache.get(filePath);
-  if (!url) {
-    url = convertFileSrc(filePath);
+  if (url) {
+    // Move to end (most-recently-used)
+    fileSrcCache.delete(filePath);
     fileSrcCache.set(filePath, url);
+    return url;
   }
+  url = convertFileSrc(filePath);
+  if (fileSrcCache.size >= MAX_FILE_SRC_CACHE) {
+    const oldest = fileSrcCache.keys().next().value;
+    if (oldest !== undefined) fileSrcCache.delete(oldest);
+  }
+  fileSrcCache.set(filePath, url);
   return url;
 }
 import { listen } from "@tauri-apps/api/event";

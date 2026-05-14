@@ -5,13 +5,22 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 export const THUMBNAIL_SIZE = 128;
 
 // Cache asset protocol URLs for thumbnail paths
+const MAX_THUMB_SRC_CACHE = 500;
 const thumbSrcCache = new Map<string, string>();
 function cachedConvertFileSrc(filePath: string): string {
   let url = thumbSrcCache.get(filePath);
-  if (!url) {
-    url = convertFileSrc(filePath);
+  if (url) {
+    // Move to end (most-recently-used)
+    thumbSrcCache.delete(filePath);
     thumbSrcCache.set(filePath, url);
+    return url;
   }
+  url = convertFileSrc(filePath);
+  if (thumbSrcCache.size >= MAX_THUMB_SRC_CACHE) {
+    const oldest = thumbSrcCache.keys().next().value;
+    if (oldest !== undefined) thumbSrcCache.delete(oldest);
+  }
+  thumbSrcCache.set(filePath, url);
   return url;
 }
 
