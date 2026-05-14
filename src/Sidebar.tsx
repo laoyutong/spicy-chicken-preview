@@ -171,11 +171,18 @@ const Sidebar = memo(function Sidebar({
         setContainerHeight(el.clientHeight);
       });
     };
-    // Initial measurement
+    // Initial measurement (may be inaccurate during loading state — ResizeObserver
+    // below will correct it once the list finishes rendering and the container
+    // reaches its final height).
     setContainerHeight(el.clientHeight);
+    const ro = new ResizeObserver(() => {
+      setContainerHeight(el.clientHeight);
+    });
+    ro.observe(el);
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       el.removeEventListener("scroll", onScroll);
+      ro.disconnect();
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [currentFolder]);
